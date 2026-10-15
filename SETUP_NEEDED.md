@@ -1,36 +1,30 @@
-# Setup needed before the build phases can start
+# Setup status
 
-Checked on 2026-10-15:
+Everything needed to build is installed. Nothing further is **required**.
 
 | Tool | Status |
 |---|---|
-| git | OK (2.55.0.windows.5) |
-| MSVC build tools | OK (VS 2022 Community, VC tools 14.44.35207, C++ workload present) |
-| rustup | **MISSING** (not on PATH, no `%USERPROFILE%\.rustup`) |
-| cargo / rustc | **MISSING** (no `%USERPROFILE%\.cargo\bin`) |
+| git | 2.55 (was present) |
+| MSVC build tools | VS 2022 Community, VC 14.44 (was present) |
+| Rust | **installed this session** per-user via rustup: stable 1.99.1 `x86_64-pc-windows-msvc`, with clippy and rustfmt (`%USERPROFILE%\.cargo`, `%USERPROFILE%\.rustup`) |
+| Inno Setup | not installed (optional): `scripts\package.ps1` falls back to an IExpress installer; CI installs Inno Setup itself |
 
-## What to install
+## Worth knowing / optional
 
-1. Install Rust via rustup (this is the only missing piece):
-   - Download and run `rustup-init.exe` from https://rustup.rs
-   - Choose the default: toolchain `stable`, host `x86_64-pc-windows-msvc`.
-2. Open a **new** terminal so `%USERPROFILE%\.cargo\bin` is on PATH, then confirm:
-   ```
-   rustup --version
-   cargo --version
-   rustc --version
-   ```
-3. Add the components the phases need:
-   ```
-   rustup component add clippy rustfmt
-   ```
-
-No Visual Studio changes are needed; the "Desktop development with C++" workload is already installed.
-
-## Not done (blocked)
-
-Phases 1-5 were not started, since nothing can be compiled without cargo. Also note
-`D:\Mic App - Claude` is not yet a git repository; run `git init` there (or let the
-next session do it) before the first phase commit.
-
-Once Rust is installed, re-run the same session prompt and it will begin at Phase 1.
+1. **Smart App Control is now enforcing on this PC** (it was in evaluation mode earlier in the
+   day and switched during this session). It blocks *newly compiled unsigned executables* it has no
+   reputation for: debug-profile test binaries and new Cargo build scripts failed with
+   `os error 4551`. I did not turn it off (a security downgrade that is irreversible without an OS
+   reset, so it is yours to decide). What works: `cargo build --release`, `cargo test --release`,
+   `cargo clippy`, and running the freshly built release exe. If you want normal `cargo test`
+   (debug) and arbitrary new build scripts here, either disable Smart App Control in
+   *Windows Security -> App & browser control -> Smart App Control*, or sign the binaries with a
+   certificate Windows trusts.
+2. **The microphone has been delivering digital silence since about 15:30** (both the raw
+   WASAPI capture and Windows' own peak meter read exact zeros; endpoint mute is *off* and
+   volume is 100 %). The AT2020USB-X has a touch-sensitive mute: check its LED / tap it, and check
+   *Windows Settings -> Privacy -> Microphone*. The automated tests that need real mic content
+   (RNNoise reduction on live noise) ran earlier in the day when the mic was live
+   (raw -52.3 dBFS, 13.7 dB suppression); later runs only prove the plumbing.
+3. You have Voicemeeter installed next to VB-CABLE. The app now prefers `CABLE Input` when
+   choosing an output; Voicemeeter's devices are still listed and flagged as virtual.
