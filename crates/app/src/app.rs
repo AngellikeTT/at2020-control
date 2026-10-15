@@ -180,6 +180,7 @@ impl App {
             settings.hotkey_mic_mute.clone(),
         ];
         let ab_other = settings.ab_b.unwrap_or(params);
+        let start_hidden = opts.minimized && settings.start_minimized;
         Self {
             devctl,
             shared,
@@ -224,8 +225,8 @@ impl App {
             integration: Integration::new(&cc.egui_ctx),
             hotkey_edit,
             hotkeys_applied: false,
-            hidden: opts.minimized,
-            hide_on_first_frame: opts.minimized,
+            hidden: start_hidden,
+            hide_on_first_frame: start_hidden,
             last_tip: String::new(),
             quitting: false,
             shots,

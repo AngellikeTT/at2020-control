@@ -50,7 +50,7 @@ impl Default for Settings {
             buffer_frames: None,
             exclusive_mode: false,
             minimize_to_tray: true,
-            start_minimized: false,
+            start_minimized: true,
             start_with_windows: false,
             hotkeys_enabled: true,
             hotkey_mute: "Ctrl+Alt+M".into(),

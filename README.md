@@ -61,6 +61,10 @@ at2020-control.exe --selftest [--quick] [--out report.md]    (hidden; see below)
 at2020-control.exe --minimized                                (start hidden in the tray)
 ```
 
+The release exe uses the Windows GUI subsystem, so a terminal does not wait for it by default;
+use `start /wait at2020-control.exe --process ...` in cmd or `Start-Process -Wait` in PowerShell to
+get the output in order and a usable exit code (0 = ok, 2 = error).
+
 `--preset` accepts a built-in name (`voice`, `noisy`, `flat` or the full name), the name of
 a saved preset, or a path to a preset `.toml`. Output has the input's sample rate and
 length and is time-aligned with it.
