@@ -473,7 +473,7 @@ impl App {
                             ui.add_enabled_ui(use_fixed, |ui| {
                                 if ui
                                     .add(
-                                        egui::Slider::new(&mut frames, lo..=hi.min(8192))
+                                        egui::Slider::new(&mut frames, lo..=hi.min(8192).max(lo))
                                             .logarithmic(true)
                                             .suffix(" frames"),
                                     )
@@ -653,8 +653,19 @@ impl App {
         );
         ui.add_space(8.0);
 
-        let cable_render = self.dev.renders.iter().find(|d| d.virtual_cable);
-        let cable_capture = self.dev.captures.iter().find(|d| d.virtual_cable);
+        // Prefer the plain VB-CABLE pair when several virtual devices are installed.
+        let cable_render = self
+            .dev
+            .renders
+            .iter()
+            .find(|d| d.name.to_lowercase().starts_with("cable input"))
+            .or_else(|| self.dev.renders.iter().find(|d| d.virtual_cable));
+        let cable_capture = self
+            .dev
+            .captures
+            .iter()
+            .find(|d| d.name.to_lowercase().starts_with("cable output"))
+            .or_else(|| self.dev.captures.iter().find(|d| d.virtual_cable));
         let out_name = self.settings.output_name.clone();
         let out_is_cable = out_name
             .as_deref()
@@ -1137,7 +1148,7 @@ impl App {
                             .desired_width(200.0)
                             .hint_text("e.g. Ctrl+Alt+M"),
                     );
-                    if r.lost_focus() && r.changed() || r.lost_focus() {
+                    if r.lost_focus() {
                         apply = true;
                     }
                     ui.end_row();

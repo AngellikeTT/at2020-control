@@ -55,7 +55,9 @@ pub fn row_slider(
     log: bool,
 ) -> bool {
     ui.horizontal(|ui| {
-        ui.add_sized([96.0, 20.0], egui::Label::new(label));
+        ui.add_sized([84.0, 20.0], egui::Label::new(label));
+        // Fit the slider to the column: leave room for the value box.
+        ui.spacing_mut().slider_width = (ui.available_width() - 84.0).clamp(50.0, 260.0);
         ui.add(
             egui::Slider::new(v, r)
                 .suffix(suffix)

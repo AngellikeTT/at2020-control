@@ -76,6 +76,9 @@ struct ShotState {
     idx: usize,
     wait: u32,
     pending: Option<String>,
+    requested: bool,
+    engine_wait: u32,
+    timeout: u32,
 }
 
 pub struct App {
@@ -129,6 +132,8 @@ pub struct App {
     pub(crate) hotkey_edit: [String; 3],
     hotkeys_applied: bool,
     hidden: bool,
+    hide_on_first_frame: bool,
+    last_tip: String,
     quitting: bool,
     shots: Option<ShotState>,
     title_dark: Option<bool>,
@@ -163,6 +168,9 @@ impl App {
                 idx: 0,
                 wait: 40,
                 pending: None,
+                requested: false,
+                engine_wait: 0,
+                timeout: 0,
             }
         });
         let analyzer = Analyzer::new(shared.spec_in.clone(), shared.spec_out.clone());
@@ -217,6 +225,8 @@ impl App {
             hotkey_edit,
             hotkeys_applied: false,
             hidden: opts.minimized,
+            hide_on_first_frame: opts.minimized,
+            last_tip: String::new(),
             quitting: false,
             shots,
             title_dark: None,
@@ -243,7 +253,13 @@ impl App {
             self.mark_dirty();
         }
         if self.settings.output_name.is_none() {
-            if let Some(c) = self.dev.renders.iter().find(|d| d.virtual_cable) {
+            let pick = self
+                .dev
+                .renders
+                .iter()
+                .find(|d| d.name.to_lowercase().starts_with("cable input"))
+                .or_else(|| self.dev.renders.iter().find(|d| d.virtual_cable));
+            if let Some(c) = pick {
                 self.settings.output_name = Some(c.name.clone());
                 self.mark_dirty();
             }
@@ -463,33 +479,61 @@ impl App {
 
     fn drive_screenshots(&mut self, ctx: &egui::Context) {
         let Some(s) = self.shots.as_mut() else { return };
-        // Collect a finished capture.
+        ctx.request_repaint();
+        // A finished capture?
         let img = ctx.input(|i| {
             i.events.iter().find_map(|e| match e {
                 egui::Event::Screenshot { image, .. } => Some(image.clone()),
                 _ => None,
             })
         });
-        if let (Some(img), Some(name)) = (img, s.pending.take()) {
-            let _ = std::fs::create_dir_all(&s.dir);
-            let (w, h) = (img.size[0] as u32, img.size[1] as u32);
-            let mut raw = Vec::with_capacity(img.pixels.len() * 4);
-            for p in &img.pixels {
-                raw.extend_from_slice(&[p.r(), p.g(), p.b(), p.a()]);
+        if let Some(img) = img {
+            if let Some(name) = s.pending.take() {
+                let _ = std::fs::create_dir_all(&s.dir);
+                let (w, h) = (img.size[0] as u32, img.size[1] as u32);
+                let mut raw = Vec::with_capacity(img.pixels.len() * 4);
+                for p in &img.pixels {
+                    raw.extend_from_slice(&[p.r(), p.g(), p.b(), p.a()]);
+                }
+                match image::RgbaImage::from_raw(w, h, raw) {
+                    Some(buf) => {
+                        let path = s.dir.join(format!("{name}.png"));
+                        match buf.save(&path) {
+                            Ok(()) => tracing::info!("screenshot saved: {}", path.display()),
+                            Err(e) => tracing::warn!("screenshot save failed: {e}"),
+                        }
+                    }
+                    None => tracing::warn!("screenshot buffer size mismatch"),
+                }
+                s.idx += 1;
+                s.wait = 4;
+                s.requested = false;
             }
-            if let Some(buf) = image::RgbaImage::from_raw(w, h, raw) {
-                let _ = buf.save(s.dir.join(format!("{name}.png")));
-            }
-            s.idx += 1;
-            s.wait = 6;
         }
         if s.wait > 0 {
             s.wait -= 1;
-            ctx.request_repaint();
             return;
         }
+        // Let the engine come up (up to ~15 s) and the meters/analyzer fill before the first shot.
+        if s.idx == 0 && s.pending.is_none() && s.engine_wait < 450 {
+            s.engine_wait += 1;
+            if self.engine.is_none() || s.engine_wait < 60 {
+                return;
+            }
+        }
         if s.pending.is_some() {
-            ctx.request_repaint();
+            if !s.requested {
+                s.requested = true;
+                s.timeout = 180;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot);
+            } else if s.timeout == 0 {
+                tracing::warn!("screenshot timed out; skipping");
+                s.pending = None;
+                s.idx += 1;
+                s.requested = false;
+            } else {
+                s.timeout -= 1;
+            }
             return;
         }
         let per_theme = Tab::ALL.len();
@@ -511,12 +555,10 @@ impl App {
             tab.slug()
         );
         s.pending = Some(file);
-        s.wait = 14;
+        s.requested = false;
+        s.wait = 14; // let the new theme/tab settle for a few frames before capturing
         self.settings.theme = theme_name;
         self.tab = tab;
-        // The capture is requested after the wait; do it now so it lands on a settled frame.
-        ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot);
-        ctx.request_repaint();
     }
 }
 
@@ -530,7 +572,7 @@ impl eframe::App for App {
             self.applied_theme = None;
         }
         self.apply_theme(ctx, frame);
-        if !self.hotkeys_applied {
+        if !self.hotkeys_applied && self.shots.is_none() {
             self.apply_hotkeys();
         }
         self.handle_actions(ctx);
@@ -546,9 +588,14 @@ impl eframe::App for App {
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             self.hidden = true;
         }
-        if self.hidden && !ctx.input(|i| i.viewport().minimized.unwrap_or(false)) {
-            // Start-minimized launch: hide on the first frame.
-            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        if self.hide_on_first_frame {
+            // Start-minimised launch (e.g. from the Run key): hide once, keep running.
+            self.hide_on_first_frame = false;
+            if self.integration.has_tray() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            } else {
+                self.hidden = false;
+            }
         }
 
         self.dev = self.devctl.snapshot();
@@ -625,10 +672,12 @@ impl eframe::App for App {
             .dirty_since
             .is_some_and(|t| now.duration_since(t) > Duration::from_millis(800))
         {
-            self.settings.save();
+            if self.shots.is_none() {
+                self.settings.save();
+            }
             self.dirty_since = None;
         }
-        if self.integration.has_tray() && (now.elapsed().as_millis() < 5) {
+        if self.integration.has_tray() {
             let state = if self.params.output.mute {
                 "output muted"
             } else if self.params.bypass {
@@ -638,8 +687,11 @@ impl eframe::App for App {
             } else {
                 "stopped"
             };
-            self.integration
-                .set_tooltip(&format!("AT2020USB-X Control Panel — {state}"));
+            let tip = format!("AT2020USB-X Control Panel — {state}");
+            if tip != self.last_tip {
+                self.integration.set_tooltip(&tip);
+                self.last_tip = tip;
+            }
         }
         ctx.request_repaint_after(Duration::from_millis(if self.hidden { 250 } else { 33 }));
     }
@@ -647,7 +699,9 @@ impl eframe::App for App {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.stop_recording();
         self.settings.params = self.params;
-        self.settings.save();
+        if self.shots.is_none() {
+            self.settings.save();
+        }
         self.engine = None;
     }
 }
@@ -752,18 +806,26 @@ impl App {
                     ui.colored_label(th.danger(), "● REC");
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let mute_col = if p.output.mute {
-                        th.danger()
+                    let label_col = if p.output.mute {
+                        Color32::WHITE
                     } else {
-                        th.weak()
+                        th.text.color()
                     };
-                    *changed |= ui
-                        .toggle_value(
-                            &mut p.output.mute,
-                            RichText::new("Mute output").color(mute_col),
-                        )
-                        .changed();
-                    *changed |= ui.toggle_value(&mut p.bypass, "Bypass chain").changed();
+                    let mut mute_btn =
+                        egui::Button::new(RichText::new("Mute output").color(label_col))
+                            .selected(p.output.mute);
+                    if p.output.mute {
+                        mute_btn = mute_btn.fill(th.danger().gamma_multiply(0.8));
+                    }
+                    if ui.add(mute_btn).clicked() {
+                        p.output.mute = !p.output.mute;
+                        *changed = true;
+                    }
+                    let byp = egui::Button::new("Bypass chain").selected(p.bypass);
+                    if ui.add(byp).clicked() {
+                        p.bypass = !p.bypass;
+                        *changed = true;
+                    }
                 });
             });
             ui.add_space(2.0);

@@ -303,6 +303,10 @@ pub fn comp_auto_makeup_db(p: &CompParams) -> f32 {
 pub struct Compressor {
     det: f32,
     gr_db: f32,
+    /// Make-up gain actually applied; it slews toward the target per sample so that
+    /// parameter changes never step at block boundaries.
+    makeup_db: f32,
+    makeup_init: bool,
 }
 
 impl Compressor {
@@ -310,6 +314,8 @@ impl Compressor {
         Self {
             det: 0.0,
             gr_db: 0.0,
+            makeup_db: 0.0,
+            makeup_init: false,
         }
     }
     /// Returns the maximum gain reduction (positive dB) applied during the block.
@@ -322,14 +328,20 @@ impl Compressor {
         } else {
             p.makeup_db
         };
+        if !self.makeup_init {
+            self.makeup_db = makeup;
+            self.makeup_init = true;
+        }
+        let mk = 1.0 - tc_coef(5.0);
         let mut max_gr = 0.0f32;
         for x in buf.iter_mut() {
+            self.makeup_db += (makeup - self.makeup_db) * mk;
             self.det = x.abs().max(self.det * det_rel);
             let xdb = lin_to_db(self.det.max(1e-6));
             let target = comp_curve_db(xdb, p) - xdb; // <= 0
             let c = if target < self.gr_db { att } else { rel };
             self.gr_db = c * self.gr_db + (1.0 - c) * target;
-            *x *= db_to_lin(self.gr_db + makeup);
+            *x *= db_to_lin(self.gr_db + self.makeup_db);
             max_gr = max_gr.max(-self.gr_db);
         }
         max_gr
@@ -1054,7 +1066,7 @@ mod tests {
 
     #[test]
     fn toggling_stages_mid_stream_does_not_click() {
-        let x = sine(FRAME * 80, 300.0, 0.3);
+        let x = sine(FRAME * 100, 300.0, 0.3);
         let mut c = Chain::new();
         let mut p = ChainParams::voice();
         let mut y = Vec::new();
@@ -1066,6 +1078,10 @@ mod tests {
                 50 => p.deess.enabled = false,
                 60 => p.bypass = true,
                 70 => p.bypass = false,
+                72 => p.comp.enabled = true,
+                74 => p.eq.enabled = true,
+                76 => p.deess.enabled = true,
+                78 => p.limiter.enabled = true,
                 _ => {}
             }
             let mut b = ch.to_vec();

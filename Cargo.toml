@@ -6,7 +6,6 @@ members = ["crates/core-dsp", "crates/device", "crates/app"]
 version = "0.2.0"
 edition = "2021"
 rust-version = "1.82"
-license = "MIT"
 description = "Control panel and real-time voice processing chain for the Audio-Technica AT2020USB-X"
 
 [workspace.dependencies]

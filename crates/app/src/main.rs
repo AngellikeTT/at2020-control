@@ -40,7 +40,10 @@ fn main() -> eframe::Result<()> {
             eprintln!("usage: --embed-icon <exe> <ico>");
             std::process::exit(2);
         };
-        return match device::winsys::embed_icon(std::path::Path::new(exe), std::path::Path::new(ico)) {
+        return match device::winsys::embed_icon(
+            std::path::Path::new(exe),
+            std::path::Path::new(ico),
+        ) {
             Ok(()) => Ok(()),
             Err(e) => {
                 eprintln!("embed-icon failed: {e}");

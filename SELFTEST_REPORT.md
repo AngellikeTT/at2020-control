@@ -1,6 +1,6 @@
 # SELFTEST REPORT
 
-Generated 2026-10-15 21:31:47 UTC - run time 1.0 min - 52 passed, 0 failed, 1 warnings
+Generated 2026-10-15 22:33:51 UTC - run time 61.5 min - 56 passed, 0 failed, 0 warnings
 
 
 ## DSP stages (offline, 48 kHz)
@@ -85,7 +85,7 @@ Generated 2026-10-15 21:31:47 UTC - run time 1.0 min - 52 passed, 0 failed, 1 wa
 - **PASS** fault flag take/clear: set -> take -> empty
 - **PASS** engine stop/start x3 (device-change restart path): no failure
 
-## Live capture with RNNoise (1 s)
+## Live capture with RNNoise (30 s)
 
 - engine: in 48000 Hz x2, out 48000 Hz x2, algorithmic latency 19.0 ms
 - meters: in peak -180.0 dBFS, out peak -180.0 dBFS, max GR -0.0 dB, VAD mean 0.00 max 0.00
@@ -93,26 +93,30 @@ Generated 2026-10-15 21:31:47 UTC - run time 1.0 min - 52 passed, 0 failed, 1 wa
 - **PASS** underruns after start-up <= 2: 0
 - **PASS** live latency estimate < 120 ms: 49.0 ms
 - raw mic RMS -200.0 dBFS; cable capture RMS -200.0 dBFS (+0.0 dB)
-- **PASS** processed audio arrives at CABLE Output: 64800 samples captured
+- **PASS** processed audio arrives at CABLE Output: 1459680 samples captured
 - **PASS** capture has no NaN/inf: all finite
 
 ## VB-CABLE loopback
 
-- **PASS** cable render-to-capture latency < 150 ms: 107.2 ms
-- **PASS** flat response (DSP bypassed): worst 0.35 dB; 100:+0.00 250:+0.00 500:+0.00 1000:+0.00 2000:-0.00 4000:-0.00 8000:-0.35 12000:-0.00 16000:-0.00
+- **PASS** cable render-to-capture latency < 150 ms: 99.7 ms
+- **PASS** flat response (DSP bypassed): worst 0.00 dB; 100:+0.00 250:+0.00 500:+0.00 1000:+0.00 2000:-0.00 4000:-0.00 8000:-0.00 12000:-0.00 16000:-0.00
 - **PASS** cable gain near unity: 1 kHz reads -0.00 dB re -12 dBFS
 - **PASS** cable THD+N @1 kHz -6 dBFS: -110.2 dB
 - stage output generated offline, rendered through the cable, compared per tone
 - **PASS** stage via cable: low cut 150 Hz: tone levels dBFS -33.8/-26.0/-26.0/-26.0/-26.0; device-path error 0.07 dB
 - **PASS** stage via cable: RNNoise: tone levels dBFS -32.2/-26.0/-26.0/-26.2/-27.5; device-path error 0.04 dB
 - **PASS** stage via cable: gate: tone levels dBFS -26.0/-26.0/-26.0/-26.0/-26.0; device-path error 0.07 dB
-- **PASS** stage via cable: EQ +6 dB @3 kHz: tone levels dBFS -26.0/-25.8/-25.2/-20.0/-25.2; device-path error 0.05 dB
+- **PASS** stage via cable: EQ +6 dB @3 kHz: tone levels dBFS -26.0/-25.8/-25.2/-20.0/-25.2; device-path error 0.04 dB
 - **PASS** stage via cable: compressor: tone levels dBFS -34.0/-34.0/-34.0/-34.0/-34.0; device-path error 0.00 dB
 - **PASS** stage via cable: limiter: tone levels dBFS -18.0/-18.0/-18.0/-18.0/-18.0; device-path error 0.00 dB
 
-## Soak (0 min)
+## Soak (60 min)
 
-- WARN: soak disabled
+- ran 60.0 min; ring fill min/avg/max 804/1437/1924 samples; CPU avg 0.23% max 0.66% (of 20 logical CPUs)
+- **PASS** no stream fault: None
+- **PASS** xruns (output underruns): 0
+- **PASS** CPU average < 10%: 0.23%
+- **PASS** memory growth < 25 MiB: 20.3 -> 20.5 MiB
 
 ## System state restored
 
