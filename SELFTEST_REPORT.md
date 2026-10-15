@@ -1,16 +1,16 @@
 # SELFTEST REPORT
 
-Generated 2026-10-15 22:33:51 UTC - run time 61.5 min - 56 passed, 0 failed, 0 warnings
+Generated 2026-10-15 23:44:45 UTC - run time 61.8 min - 65 passed, 1 failed, 0 warnings
 
 
 ## DSP stages (offline, 48 kHz)
 
-- **PASS** flat chain frequency response: worst deviation 0.00 dB (50 Hz +0.00 dB; 100 Hz +0.00 dB; 250 Hz +0.00 dB; 1000 Hz +0.00 dB; 4000 Hz +0.00 dB; 10000 Hz +0.00 dB; 16000 Hz +0.00 dB; )
-- **PASS** flat chain THD+N @1 kHz -6 dBFS: -153.6 dB
+- **PASS** flat chain frequency response: worst deviation 0.01 dB (50 Hz -0.01 dB; 100 Hz -0.00 dB; 250 Hz -0.00 dB; 1000 Hz +0.00 dB; 4000 Hz +0.00 dB; 10000 Hz +0.00 dB; 16000 Hz +0.00 dB; )
+- **PASS** flat chain THD+N @1 kHz -6 dBFS: -147.9 dB
 - **PASS** bypass applies input gain only (+6 dB): +6.00 dB
 - **PASS** low cut -3 dB at corner: -3.01 dB @80 Hz
 - **PASS** low cut passes 1 kHz: -0.00 dB
-- **PASS** RNNoise suppresses stationary noise: -30.0 dBFS -> -90.5 dBFS (60.5 dB)
+- **PASS** RNNoise suppresses stationary noise: -30.0 dBFS -> -90.8 dBFS (60.8 dB)
 - **PASS** gate open passes signal: -0.00 dB
 - **PASS** gate closed attenuates: -60.0 dB
 - **PASS** EQ +6 dB peak at 1 kHz: +6.00 dB
@@ -18,12 +18,16 @@ Generated 2026-10-15 22:33:51 UTC - run time 61.5 min - 56 passed, 0 failed, 0 w
 - **PASS** limiter holds ceiling: peak -3.00 dBFS (ceiling -3)
 - **PASS** output gain +6 dB: +6.00 dB
 - **PASS** output mute silences: -200 dBFS
+- **PASS** de-esser reduces 6.5 kHz: -12.0 dB
+- **PASS** de-esser leaves 500 Hz alone: -0.00 dB
+- **PASS** VAD gate shuts on non-voice noise: -25.0 -> -65.0 dBFS (40.0 dB)
+- **FAIL** parameter changes are click-free: max step 0.0265 vs clean sine 0.0104
 
 ## Engine pipeline (offline: resampler, ring, drift control)
 
-- **PASS** 48000 Hz in -> 48000 Hz out: gain +0.00 dB, THD+N -153.1 dB, pitch error +0.000 Hz, latency 34.0 ms
+- **PASS** 48000 Hz in -> 48000 Hz out: gain +0.00 dB, THD+N -150.9 dB, pitch error +0.000 Hz, latency 34.0 ms
 - **PASS** 44100 Hz in -> 48000 Hz out: gain -0.00 dB, THD+N -89.5 dB, pitch error +0.000 Hz, latency 34.0 ms
-- **PASS** 96000 Hz in -> 48000 Hz out: gain -0.00 dB, THD+N -152.5 dB, pitch error +0.000 Hz, latency 34.1 ms
+- **PASS** 96000 Hz in -> 48000 Hz out: gain -0.00 dB, THD+N -147.2 dB, pitch error +0.000 Hz, latency 34.1 ms
 - **PASS** 48000 Hz in -> 44100 Hz out: gain -0.00 dB, THD+N -55.5 dB, pitch error +0.000 Hz, latency 34.0 ms
 
 ## Device discovery and capabilities
@@ -91,32 +95,43 @@ Generated 2026-10-15 22:33:51 UTC - run time 61.5 min - 56 passed, 0 failed, 0 w
 - meters: in peak -180.0 dBFS, out peak -180.0 dBFS, max GR -0.0 dB, VAD mean 0.00 max 0.00
 - **PASS** no stream fault: None
 - **PASS** underruns after start-up <= 2: 0
-- **PASS** live latency estimate < 120 ms: 49.0 ms
+- **PASS** live latency estimate < 120 ms: 47.3 ms
 - raw mic RMS -200.0 dBFS; cable capture RMS -200.0 dBFS (+0.0 dB)
-- **PASS** processed audio arrives at CABLE Output: 1459680 samples captured
+- **PASS** processed audio arrives at CABLE Output: 1461120 samples captured
 - **PASS** capture has no NaN/inf: all finite
 
 ## VB-CABLE loopback
 
-- **PASS** cable render-to-capture latency < 150 ms: 99.7 ms
+- **PASS** cable render-to-capture latency < 150 ms: 98.7 ms
 - **PASS** flat response (DSP bypassed): worst 0.00 dB; 100:+0.00 250:+0.00 500:+0.00 1000:+0.00 2000:-0.00 4000:-0.00 8000:-0.00 12000:-0.00 16000:-0.00
 - **PASS** cable gain near unity: 1 kHz reads -0.00 dB re -12 dBFS
 - **PASS** cable THD+N @1 kHz -6 dBFS: -110.2 dB
 - stage output generated offline, rendered through the cable, compared per tone
 - **PASS** stage via cable: low cut 150 Hz: tone levels dBFS -33.8/-26.0/-26.0/-26.0/-26.0; device-path error 0.07 dB
 - **PASS** stage via cable: RNNoise: tone levels dBFS -32.2/-26.0/-26.0/-26.2/-27.5; device-path error 0.04 dB
-- **PASS** stage via cable: gate: tone levels dBFS -26.0/-26.0/-26.0/-26.0/-26.0; device-path error 0.07 dB
-- **PASS** stage via cable: EQ +6 dB @3 kHz: tone levels dBFS -26.0/-25.8/-25.2/-20.0/-25.2; device-path error 0.04 dB
+- **PASS** stage via cable: gate: tone levels dBFS -26.0/-26.0/-26.0/-26.0/-26.0; device-path error 0.26 dB
+- **PASS** stage via cable: EQ +6 dB @3 kHz: tone levels dBFS -26.0/-25.8/-25.2/-20.0/-25.2; device-path error 0.26 dB
 - **PASS** stage via cable: compressor: tone levels dBFS -34.0/-34.0/-34.0/-34.0/-34.0; device-path error 0.00 dB
-- **PASS** stage via cable: limiter: tone levels dBFS -18.0/-18.0/-18.0/-18.0/-18.0; device-path error 0.00 dB
+- **PASS** stage via cable: limiter: tone levels dBFS -17.9/-18.0/-17.9/-18.0/-18.0; device-path error 0.00 dB
+- **PASS** stage via cable: de-esser @8 kHz: tone levels dBFS -26.0/-26.0/-26.0/-26.4/-37.9; device-path error 0.00 dB
+- **PASS** stage via cable: VAD gate: tone levels dBFS -26.0/-26.0/-26.0/-26.0/-26.0; device-path error 0.26 dB
+
+## WASAPI exclusive mode
+
+- input: 48000 Hz x1 PCM16 144 frames (exclusive); output: 48000 Hz x2 PCM16 144 frames (exclusive)
+- **PASS** exclusive engine starts (or falls back): running 5 s
+- **PASS** no stream fault in exclusive mode: None
+- **PASS** exclusive underruns <= 2: 0
+- **PASS** signal flows: out peak -180.0 dBFS
+- estimated latency 50.3 ms
 
 ## Soak (60 min)
 
-- ran 60.0 min; ring fill min/avg/max 804/1437/1924 samples; CPU avg 0.23% max 0.66% (of 20 logical CPUs)
+- ran 60.0 min; ring fill min/avg/max 937/1437/1920 samples; CPU avg 0.06% max 0.31% (of 20 logical CPUs)
 - **PASS** no stream fault: None
 - **PASS** xruns (output underruns): 0
-- **PASS** CPU average < 10%: 0.23%
-- **PASS** memory growth < 25 MiB: 20.3 -> 20.5 MiB
+- **PASS** CPU average < 10%: 0.06%
+- **PASS** memory growth < 25 MiB: 25.2 -> 25.2 MiB
 
 ## System state restored
 

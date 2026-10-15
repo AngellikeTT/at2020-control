@@ -25,6 +25,10 @@ pub fn init() -> Option<WorkerGuard> {
         .with_env_filter(filter)
         .try_init()
         .ok()?;
-    tracing::info!(version = env!("CARGO_PKG_VERSION"), "started");
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        build = crate::BUILD_ID,
+        "started"
+    );
     Some(guard)
 }

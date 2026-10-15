@@ -17,6 +17,12 @@ mod widgets;
 
 use eframe::egui;
 
+/// Source revision, injected by the packaging script and CI through `AT2020_BUILD_ID`.
+pub const BUILD_ID: &str = match option_env!("AT2020_BUILD_ID") {
+    Some(s) => s,
+    None => "dev",
+};
+
 fn attach_console() {
     use windows::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
     // SAFETY: no pointers; failure (no parent console) is harmless.

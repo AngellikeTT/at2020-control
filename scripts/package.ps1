@@ -12,6 +12,7 @@ Set-Location $root
 if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH" }
 
 $ver = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+$env:AT2020_BUILD_ID = (git rev-parse --short HEAD 2>$null)
 cargo build --release --workspace
 if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
 

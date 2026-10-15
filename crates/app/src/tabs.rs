@@ -1185,7 +1185,11 @@ impl App {
         ui.add_space(6.0);
         ui.label(weak(
             ui,
-            format!("AT2020USB-X Control Panel {}", env!("CARGO_PKG_VERSION")),
+            format!(
+                "AT2020USB-X Control Panel {} (build {})",
+                env!("CARGO_PKG_VERSION"),
+                crate::BUILD_ID
+            ),
         ));
     }
 }

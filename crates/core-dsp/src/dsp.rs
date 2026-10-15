@@ -32,6 +32,22 @@ pub struct Coeffs {
 }
 
 impl Coeffs {
+    /// Per-sample interpolation target: linear in the coefficients, which keeps the poles
+    /// inside the unit circle because the stability triangle is convex.
+    pub fn lerp(&self, to: &Coeffs, t: f64) -> Coeffs {
+        Coeffs {
+            b0: self.b0 + (to.b0 - self.b0) * t,
+            b1: self.b1 + (to.b1 - self.b1) * t,
+            b2: self.b2 + (to.b2 - self.b2) * t,
+            a1: self.a1 + (to.a1 - self.a1) * t,
+            a2: self.a2 + (to.a2 - self.a2) * t,
+        }
+    }
+
+    pub fn same(&self, o: &Coeffs) -> bool {
+        self.b0 == o.b0 && self.b1 == o.b1 && self.b2 == o.b2 && self.a1 == o.a1 && self.a2 == o.a2
+    }
+
     pub fn identity() -> Self {
         Self {
             b0: 1.0,
@@ -156,6 +172,24 @@ impl Biquad {
     pub fn set(&mut self, c: Coeffs) {
         self.c = c;
     }
+    /// Filters `buf` in place, moving the coefficients linearly from `from` to `to` over
+    /// the block so parameter changes never step at block boundaries.
+    pub fn process_block_glide(&mut self, buf: &mut [f32], from: &Coeffs, to: &Coeffs) {
+        if from.same(to) {
+            self.c = *to;
+            for x in buf.iter_mut() {
+                *x = self.process(*x as f64) as f32;
+            }
+            return;
+        }
+        let n = buf.len().max(1) as f64;
+        for (k, x) in buf.iter_mut().enumerate() {
+            self.c = from.lerp(to, (k + 1) as f64 / n);
+            *x = self.process(*x as f64) as f32;
+        }
+        self.c = *to;
+    }
+
     #[inline]
     pub fn process(&mut self, x: f64) -> f64 {
         let y = self.c.b0 * x + self.z1;
@@ -254,6 +288,9 @@ impl Gate {
 pub struct Eq {
     filters: [Biquad; EQ_BANDS],
     cached: [Option<EqBand>; EQ_BANDS],
+    /// Coefficients at the end of the previous block (glide start).
+    cur: [Coeffs; EQ_BANDS],
+    target: [Coeffs; EQ_BANDS],
 }
 
 impl Eq {
@@ -261,21 +298,24 @@ impl Eq {
         Self {
             filters: [Biquad::new(Coeffs::identity()); EQ_BANDS],
             cached: [None; EQ_BANDS],
+            cur: [Coeffs::identity(); EQ_BANDS],
+            target: [Coeffs::identity(); EQ_BANDS],
         }
     }
     pub fn process(&mut self, buf: &mut [f32], p: &EqParams) {
         for i in 0..EQ_BANDS {
             let b = p.bands[i];
             if self.cached[i] != Some(b) {
-                self.filters[i].set(band_coeffs(&b, SAMPLE_RATE as f64));
+                self.target[i] = band_coeffs(&b, SAMPLE_RATE as f64);
                 self.cached[i] = Some(b);
             }
+            let (from, to) = (self.cur[i], self.target[i]);
             if b.enabled {
-                let f = &mut self.filters[i];
-                for x in buf.iter_mut() {
-                    *x = f.process(*x as f64) as f32;
-                }
+                self.filters[i].process_block_glide(buf, &from, &to);
+            } else {
+                self.filters[i].set(to);
             }
+            self.cur[i] = to;
         }
     }
 }
@@ -591,6 +631,8 @@ fn smooth_params(c: &mut ChainParams, t: &ChainParams) {
 pub struct Chain {
     hpf: Biquad,
     hpf_freq: f32,
+    hpf_cur: Coeffs,
+    hpf_target: Coeffs,
     denoise: Denoiser,
     vad_gate: VadGate,
     gate: Gate,
@@ -614,6 +656,8 @@ impl Chain {
                 std::f64::consts::FRAC_1_SQRT_2,
             )),
             hpf_freq: 80.0,
+            hpf_cur: Coeffs::highpass(SAMPLE_RATE as f64, 80.0, std::f64::consts::FRAC_1_SQRT_2),
+            hpf_target: Coeffs::highpass(SAMPLE_RATE as f64, 80.0, std::f64::consts::FRAC_1_SQRT_2),
             denoise: Denoiser::new(),
             vad_gate: VadGate::new(),
             gate: Gate::new(),
@@ -671,16 +715,16 @@ impl Chain {
         dry.copy_from_slice(buf);
 
         if (p.input.lowcut_hz - self.hpf_freq).abs() > 1e-3 {
-            self.hpf.set(Coeffs::highpass(
+            self.hpf_target = Coeffs::highpass(
                 SAMPLE_RATE as f64,
                 p.input.lowcut_hz as f64,
                 std::f64::consts::FRAC_1_SQRT_2,
-            ));
+            );
             self.hpf_freq = p.input.lowcut_hz;
         }
-        for x in buf.iter_mut() {
-            *x = self.hpf.process(*x as f64) as f32;
-        }
+        let (from, to) = (self.hpf_cur, self.hpf_target);
+        self.hpf.process_block_glide(buf, &from, &to);
+        self.hpf_cur = to;
 
         st.vad = self.denoise.process(buf, p.denoise.strength);
         st.vad_gate_open =

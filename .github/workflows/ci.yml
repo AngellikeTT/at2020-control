@@ -33,6 +33,8 @@ jobs:
 
       - name: Build release
         run: cargo build --release --workspace
+        env:
+          AT2020_BUILD_ID: ${{ github.sha }}
 
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
