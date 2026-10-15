@@ -97,3 +97,81 @@ pub fn set_dark_title_bar(hwnd: isize, dark: bool) {
         );
     }
 }
+
+/// Writes `ico` (a .ico file) into `exe` as its application icon, so Explorer and the
+/// taskbar show it. Used by the packaging step; the exe must not be running.
+pub fn embed_icon(exe: &std::path::Path, ico: &std::path::Path) -> Result<(), String> {
+    use windows::Win32::System::LibraryLoader::{
+        BeginUpdateResourceW, EndUpdateResourceW, UpdateResourceW,
+    };
+    let data = std::fs::read(ico).map_err(|e| format!("reading {}: {e}", ico.display()))?;
+    if data.len() < 6 || data[2] != 1 || data[3] != 0 {
+        return Err("not an .ico file".into());
+    }
+    let count = u16::from_le_bytes([data[4], data[5]]) as usize;
+    if data.len() < 6 + 16 * count {
+        return Err("truncated .ico file".into());
+    }
+    // Build the RT_GROUP_ICON directory (14-byte entries with a resource id).
+    let mut group = Vec::new();
+    group.extend_from_slice(&[0, 0, 1, 0]);
+    group.extend_from_slice(&(count as u16).to_le_bytes());
+    let mut images: Vec<(u16, &[u8])> = Vec::new();
+    for i in 0..count {
+        let e = &data[6 + 16 * i..6 + 16 * (i + 1)];
+        let size = u32::from_le_bytes([e[8], e[9], e[10], e[11]]) as usize;
+        let off = u32::from_le_bytes([e[12], e[13], e[14], e[15]]) as usize;
+        let img = data
+            .get(off..off + size)
+            .ok_or_else(|| "bad image range in .ico".to_string())?;
+        let id = (i + 1) as u16;
+        group.extend_from_slice(&e[..12]);
+        group.extend_from_slice(&id.to_le_bytes());
+        images.push((id, img));
+    }
+    let wide: Vec<u16> = exe
+        .as_os_str()
+        .to_string_lossy()
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    const RT_ICON: usize = 3;
+    const RT_GROUP_ICON: usize = 14;
+    const LANG_EN_US: u16 = 0x0409;
+    // SAFETY: the handle is closed by EndUpdateResourceW on every path; data pointers
+    // reference live buffers for the duration of each call.
+    unsafe {
+        let h = BeginUpdateResourceW(PCWSTR(wide.as_ptr()), false)
+            .map_err(|e| format!("BeginUpdateResource: {e}"))?;
+        let mut result = Ok(());
+        for (id, img) in &images {
+            if let Err(e) = UpdateResourceW(
+                h,
+                PCWSTR(RT_ICON as *const u16),
+                PCWSTR(*id as usize as *const u16),
+                LANG_EN_US,
+                Some(img.as_ptr() as *const core::ffi::c_void),
+                img.len() as u32,
+            ) {
+                result = Err(format!("UpdateResource(icon {id}): {e}"));
+                break;
+            }
+        }
+        if result.is_ok() {
+            if let Err(e) = UpdateResourceW(
+                h,
+                PCWSTR(RT_GROUP_ICON as *const u16),
+                PCWSTR(1usize as *const u16),
+                LANG_EN_US,
+                Some(group.as_ptr() as *const core::ffi::c_void),
+                group.len() as u32,
+            ) {
+                result = Err(format!("UpdateResource(group): {e}"));
+            }
+        }
+        let discard = result.is_err();
+        let end = EndUpdateResourceW(h, discard);
+        result?;
+        end.map_err(|e| format!("EndUpdateResource: {e}"))
+    }
+}

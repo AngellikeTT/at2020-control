@@ -66,3 +66,49 @@ pub fn rgba(size: u32) -> Vec<u8> {
     }
     px
 }
+
+/// Serialises the icon as a multi-resolution .ico (32-bit BMP entries).
+pub fn ico_bytes(sizes: &[u32]) -> Vec<u8> {
+    let mut images: Vec<(u32, Vec<u8>)> = Vec::new();
+    for &s in sizes {
+        let px = rgba(s);
+        let n = s as usize;
+        // BITMAPINFOHEADER + bottom-up BGRA XOR bitmap + 1bpp AND mask.
+        let mut dib = Vec::new();
+        dib.extend_from_slice(&40u32.to_le_bytes());
+        dib.extend_from_slice(&(s as i32).to_le_bytes());
+        dib.extend_from_slice(&((s * 2) as i32).to_le_bytes());
+        dib.extend_from_slice(&1u16.to_le_bytes());
+        dib.extend_from_slice(&32u16.to_le_bytes());
+        dib.extend_from_slice(&0u32.to_le_bytes());
+        dib.extend_from_slice(&((n * n * 4) as u32).to_le_bytes());
+        dib.extend_from_slice(&[0u8; 16]);
+        for row in (0..n).rev() {
+            for col in 0..n {
+                let o = (row * n + col) * 4;
+                dib.extend_from_slice(&[px[o + 2], px[o + 1], px[o], px[o + 3]]);
+            }
+        }
+        let mask_row = n.div_ceil(32) * 4;
+        dib.resize(dib.len() + mask_row * n, 0);
+        images.push((s, dib));
+    }
+    let mut out = Vec::new();
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&(images.len() as u16).to_le_bytes());
+    let mut offset = 6 + 16 * images.len();
+    for (s, d) in &images {
+        let b = if *s >= 256 { 0 } else { *s as u8 };
+        out.extend_from_slice(&[b, b, 0, 0]);
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&32u16.to_le_bytes());
+        out.extend_from_slice(&(d.len() as u32).to_le_bytes());
+        out.extend_from_slice(&(offset as u32).to_le_bytes());
+        offset += d.len();
+    }
+    for (_, d) in images {
+        out.extend_from_slice(&d);
+    }
+    out
+}

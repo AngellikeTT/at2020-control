@@ -34,6 +34,36 @@ fn arg_value(args: &[String], key: &str) -> Option<String> {
 
 fn main() -> eframe::Result<()> {
     let args: Vec<String> = std::env::args().collect();
+    if let Some(pos) = args.iter().position(|a| a == "--embed-icon") {
+        // Packaging helper: --embed-icon <exe> <ico>
+        let (Some(exe), Some(ico)) = (args.get(pos + 1), args.get(pos + 2)) else {
+            eprintln!("usage: --embed-icon <exe> <ico>");
+            std::process::exit(2);
+        };
+        return match device::winsys::embed_icon(std::path::Path::new(exe), std::path::Path::new(ico)) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                eprintln!("embed-icon failed: {e}");
+                std::process::exit(2);
+            }
+        };
+    }
+    if let Some(path) = arg_value(&args, "--write-icon") {
+        if path.ends_with(".png") {
+            if let Some(img) = image::RgbaImage::from_raw(256, 256, icon::rgba(256)) {
+                let _ = img.save(&path);
+            }
+            return Ok(());
+        }
+        let bytes = icon::ico_bytes(&[16, 24, 32, 48, 64, 128, 256]);
+        return match std::fs::write(&path, bytes) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                eprintln!("could not write {path}: {e}");
+                std::process::exit(2);
+            }
+        };
+    }
     if args.iter().any(|a| a == "--selftest") {
         attach_console();
         let opts = selftest::Options::from_args(&args);
