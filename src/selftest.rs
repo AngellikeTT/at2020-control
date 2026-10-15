@@ -7,7 +7,7 @@
 
 use crate::devctl::{Cmd, DevCtl, DevState};
 use crate::dsp::{comp_curve_db, db_to_lin, lin_to_db, Chain};
-use crate::engine::{pump_offline, Engine};
+use crate::engine::{pump_offline, Engine, EngineConfig};
 use crate::params::*;
 use crate::resample::Resampler;
 use crate::shared::Shared;
@@ -908,7 +908,7 @@ fn sec_live(r: &mut Report, d: &Devices, secs: u64) {
     let shared = Arc::new(Shared::new(ChainParams::voice()));
     let raw = Recorder::start(mic);
     let cap = Recorder::start(cout);
-    let eng = Engine::start(mic, cin, None, shared.clone());
+    let eng = Engine::start(mic, cin, None, &EngineConfig::default(), shared.clone());
     let eng = match eng {
         Ok(e) => e,
         Err(e) => {
@@ -1136,7 +1136,7 @@ fn sec_soak(r: &mut Report, d: &Devices, secs: u64) {
         return;
     }
     let shared = Arc::new(Shared::new(ChainParams::voice()));
-    let eng = match Engine::start(mic, cin, None, shared.clone()) {
+    let eng = match Engine::start(mic, cin, None, &EngineConfig::default(), shared.clone()) {
         Ok(e) => e,
         Err(e) => {
             r.check("engine starts", false, format!("{e:#}"));
@@ -1253,6 +1253,7 @@ fn sec_hotplug(r: &mut Report, dev: &DevCtl, d: &Devices) {
         "No Such Microphone",
         d.cable_in.as_deref().unwrap_or("x"),
         None,
+        &EngineConfig::default(),
         shared.clone(),
     );
     r.check(
@@ -1270,7 +1271,7 @@ fn sec_hotplug(r: &mut Report, dev: &DevCtl, d: &Devices) {
     if let Some(cin) = &d.cable_in {
         let mut ok = true;
         for _ in 0..3 {
-            match Engine::start(name, cin, None, shared.clone()) {
+            match Engine::start(name, cin, None, &EngineConfig::default(), shared.clone()) {
                 Ok(e) => {
                     std::thread::sleep(Duration::from_millis(400));
                     drop(e);

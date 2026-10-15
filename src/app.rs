@@ -1,53 +1,147 @@
-//! The egui application: device control, preset handling, processing-chain editor, meters.
+//! The egui application: device control, presets, processing-chain editor, meters.
+//! Tab bodies live in `tabs.rs`.
 
 use crate::devctl::{Cmd, DevCtl, DevState};
-use crate::dsp::comp_auto_makeup_db;
-use crate::engine::Engine;
+use crate::engine::{query_caps, DeviceCaps, Engine, EngineConfig};
+use crate::integration::{Action, Integration};
 use crate::params::*;
+use crate::recorder::Recorder;
 use crate::settings::{self, Settings};
 use crate::shared::Shared;
+use crate::spectrum::Analyzer;
+use crate::theme::{Theme, ThemeStore};
 use crate::widgets::*;
 use eframe::egui::{self, Color32, RichText, Vec2};
+use std::path::PathBuf;
+use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-type RunCfg = (String, String, Option<String>);
+pub type RunCfg = (String, String, Option<String>, EngineConfig);
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Tab {
+    Chain,
+    Spectrum,
+    Audio,
+    Setup,
+    Presets,
+    Appearance,
+    System,
+}
+
+impl Tab {
+    pub const ALL: [Tab; 7] = [
+        Tab::Chain,
+        Tab::Spectrum,
+        Tab::Audio,
+        Tab::Setup,
+        Tab::Presets,
+        Tab::Appearance,
+        Tab::System,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            Tab::Chain => "Chain",
+            Tab::Spectrum => "Spectrum",
+            Tab::Audio => "Audio",
+            Tab::Setup => "Cable setup",
+            Tab::Presets => "Presets",
+            Tab::Appearance => "Appearance",
+            Tab::System => "System",
+        }
+    }
+    pub fn slug(self) -> &'static str {
+        match self {
+            Tab::Chain => "chain",
+            Tab::Spectrum => "spectrum",
+            Tab::Audio => "audio",
+            Tab::Setup => "setup",
+            Tab::Presets => "presets",
+            Tab::Appearance => "appearance",
+            Tab::System => "system",
+        }
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct LaunchOptions {
+    pub minimized: bool,
+    pub screenshots: Option<PathBuf>,
+}
+
+struct ShotState {
+    dir: PathBuf,
+    themes: Vec<String>,
+    idx: usize,
+    wait: u32,
+    pending: Option<String>,
+}
 
 pub struct App {
-    devctl: DevCtl,
-    shared: Arc<Shared>,
-    engine: Option<Engine>,
+    pub(crate) devctl: DevCtl,
+    pub(crate) shared: Arc<Shared>,
+    pub(crate) engine: Option<Engine>,
     running_cfg: Option<RunCfg>,
-    want_running: bool,
+    pub(crate) want_running: bool,
     last_attempt: Instant,
-    status: String,
+    pub(crate) status: String,
 
-    settings: Settings,
-    params: ChainParams,
-    user_presets: Vec<String>,
-    new_preset_name: String,
+    pub(crate) settings: Settings,
+    pub(crate) params: ChainParams,
+    pub(crate) ab_on_b: bool,
+    pub(crate) ab_other: ChainParams,
+    pub(crate) user_presets: Vec<String>,
+    pub(crate) new_preset_name: String,
+    pub(crate) preset_msg: String,
 
-    dev: DevState,
+    pub(crate) dev: DevState,
     seen_rev: u64,
     ui_vol: f32,
     vol_hold_until: Instant,
 
-    m_in: MeterView,
-    m_out: MeterView,
-    m_hw: MeterView,
-    gr: f32,
+    pub(crate) m_in: MeterView,
+    pub(crate) m_out: MeterView,
+    pub(crate) m_hw: MeterView,
+    pub(crate) gr: f32,
+    pub(crate) deess_gr: f32,
     last_frame: Instant,
     dirty_since: Option<Instant>,
+
+    pub(crate) tab: Tab,
+    pub(crate) analyzer: Analyzer,
+    pub(crate) caps_in: Option<DeviceCaps>,
+    pub(crate) caps_out: Option<DeviceCaps>,
+    caps_key: Option<(String, String)>,
+    pub(crate) recorder: Option<Recorder>,
+    pub(crate) last_recording: Option<(PathBuf, f32)>,
+    pub(crate) rec_raw: bool,
+    pub(crate) rec_msg: String,
+    xrun_base: u64,
+
+    pub(crate) themes: ThemeStore,
+    pub(crate) theme: Theme,
+    applied_theme: Option<Theme>,
+    pub(crate) editing: Theme,
+    pub(crate) theme_msg: String,
+
+    integration: Integration,
+    pub(crate) hotkey_edit: [String; 3],
+    hotkeys_applied: bool,
+    hidden: bool,
+    quitting: bool,
+    shots: Option<ShotState>,
+    title_dark: Option<bool>,
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let mut v = egui::Visuals::dark();
-        v.selection.bg_fill = Color32::from_rgb(40, 100, 170);
-        cc.egui_ctx.set_visuals(v);
-        cc.egui_ctx.style_mut(|s| s.spacing.slider_width = 200.0);
+    pub fn new(cc: &eframe::CreationContext<'_>, opts: LaunchOptions) -> Self {
+        crate::fonts::install(&cc.egui_ctx);
+        cc.egui_ctx.style_mut(|s| s.spacing.slider_width = 190.0);
 
-        let settings = Settings::load();
+        let mut settings = Settings::load();
+        let themes = ThemeStore::new();
+        let theme = themes.resolve(&settings.theme);
         let params = settings.params;
         let shared = Arc::new(Shared::new(params));
         shared.monitor_vol.store(settings.monitor_volume);
@@ -55,7 +149,26 @@ impl App {
         if let Some(id) = settings.input_id.clone() {
             devctl.send(Cmd::Select(id));
         }
+        settings.start_with_windows = crate::winsys::autostart_enabled();
         let now = Instant::now();
+        let shots = opts.screenshots.map(|dir| {
+            let mut names = themes.names();
+            names.retain(|n| n != crate::theme::FOLLOW_WINDOWS);
+            ShotState {
+                dir,
+                themes: names,
+                idx: 0,
+                wait: 40,
+                pending: None,
+            }
+        });
+        let analyzer = Analyzer::new(&shared);
+        let hotkey_edit = [
+            settings.hotkey_mute.clone(),
+            settings.hotkey_bypass.clone(),
+            settings.hotkey_mic_mute.clone(),
+        ];
+        let ab_other = settings.ab_b.unwrap_or(params);
         Self {
             devctl,
             shared,
@@ -66,8 +179,11 @@ impl App {
             status: "Starting…".into(),
             user_presets: settings::list_user_presets(),
             new_preset_name: String::new(),
-            settings,
+            preset_msg: String::new(),
             params,
+            ab_on_b: false,
+            ab_other,
+            settings,
             dev: DevState::default(),
             seen_rev: 0,
             ui_vol: 0.0,
@@ -76,14 +192,44 @@ impl App {
             m_out: MeterView::new(),
             m_hw: MeterView::new(),
             gr: 0.0,
+            deess_gr: 0.0,
             last_frame: now,
             dirty_since: None,
+            tab: Tab::Chain,
+            analyzer,
+            caps_in: None,
+            caps_out: None,
+            caps_key: None,
+            recorder: None,
+            last_recording: None,
+            rec_raw: false,
+            rec_msg: String::new(),
+            xrun_base: 0,
+            editing: theme.clone(),
+            themes,
+            theme,
+            applied_theme: None,
+            theme_msg: String::new(),
+            integration: Integration::new(&cc.egui_ctx),
+            hotkey_edit,
+            hotkeys_applied: false,
+            hidden: opts.minimized,
+            quitting: false,
+            shots,
+            title_dark: None,
         }
     }
 
-    fn mark_dirty(&mut self) {
+    pub(crate) fn mark_dirty(&mut self) {
         if self.dirty_since.is_none() {
             self.dirty_since = Some(Instant::now());
+        }
+    }
+
+    pub(crate) fn engine_cfg(&self) -> EngineConfig {
+        EngineConfig {
+            sample_rate: self.settings.sample_rate,
+            buffer_frames: self.settings.buffer_frames,
         }
     }
 
@@ -116,7 +262,7 @@ impl App {
         } else {
             None
         };
-        Some((inp, out, mon))
+        Some((inp, out, mon, self.engine_cfg()))
     }
 
     fn supervise(&mut self, now: Instant) {
@@ -144,18 +290,27 @@ impl App {
                         "Waiting for the microphone / output device to be available…".into()
                     }
                 }
-                Some((i, o, m)) => match Engine::start(&i, &o, m.as_deref(), self.shared.clone()) {
-                    Ok(e) => {
-                        let inf = e.info.clone();
-                        self.status = format!(
-                            "Running — in {} Hz/{}ch → out {} Hz/{}ch",
-                            inf.in_rate, inf.in_channels, inf.out_rate, inf.out_channels
-                        );
-                        self.engine = Some(e);
-                        self.running_cfg = Some((i, o, m));
+                Some((i, o, m, c)) => {
+                    match Engine::start(&i, &o, m.as_deref(), &c, self.shared.clone()) {
+                        Ok(e) => {
+                            let inf = e.info.clone();
+                            self.status = format!(
+                                "Running — in {} Hz/{}ch → out {} Hz/{}ch",
+                                inf.in_rate, inf.in_channels, inf.out_rate, inf.out_channels
+                            );
+                            tracing::info!(
+                                input = %i, output = %o, in_rate = inf.in_rate,
+                                out_rate = inf.out_rate, "engine started"
+                            );
+                            self.engine = Some(e);
+                            self.running_cfg = Some((i, o, m, c));
+                        }
+                        Err(e) => {
+                            tracing::warn!("engine start failed: {e:#}");
+                            self.status = format!("Could not start audio: {e:#}");
+                        }
                     }
-                    Err(e) => self.status = format!("Could not start audio: {e:#}"),
-                },
+                }
             }
         }
         if !self.want_running && self.engine.is_none() {
@@ -163,27 +318,234 @@ impl App {
         }
     }
 
-    fn apply_preset(&mut self, name: &str) {
+    pub(crate) fn apply_params(&mut self, p: ChainParams) {
+        self.params = p;
+        self.settings.params = p;
+        self.shared.params.set(p);
+        self.mark_dirty();
+    }
+
+    pub(crate) fn apply_preset(&mut self, name: &str) {
         let p = ChainParams::builtin()
             .into_iter()
             .find(|(n, _)| *n == name)
             .map(|(_, p)| p)
             .or_else(|| settings::load_user_preset(name));
         if let Some(p) = p {
-            self.params = p;
             self.settings.preset = name.to_string();
-            self.shared.params.set(p);
-            self.settings.params = p;
-            self.mark_dirty();
+            self.apply_params(p);
         }
+    }
+
+    pub(crate) fn toggle_ab(&mut self) {
+        let cur = self.params;
+        let other = self.ab_other;
+        self.ab_other = cur;
+        self.ab_on_b = !self.ab_on_b;
+        self.settings.ab_b = Some(if self.ab_on_b { cur } else { other });
+        self.apply_params(other);
+    }
+
+    /// Refresh device capability lists when the selection changes.
+    fn refresh_caps(&mut self) {
+        let key = (
+            self.dev.selected_name.clone().unwrap_or_default(),
+            self.settings.output_name.clone().unwrap_or_default(),
+        );
+        if self.caps_key.as_ref() == Some(&key) {
+            return;
+        }
+        self.caps_in = if key.0.is_empty() {
+            None
+        } else {
+            query_caps(&key.0, true)
+        };
+        self.caps_out = if key.1.is_empty() {
+            None
+        } else {
+            query_caps(&key.1, false)
+        };
+        self.caps_key = Some(key);
+    }
+
+    fn handle_actions(&mut self, ctx: &egui::Context) {
+        for a in self.integration.poll() {
+            match a {
+                Action::ShowWindow => {
+                    self.hidden = false;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                }
+                Action::ToggleOutputMute => {
+                    let mut p = self.params;
+                    p.output.mute = !p.output.mute;
+                    self.apply_params(p);
+                }
+                Action::ToggleBypass => {
+                    let mut p = self.params;
+                    p.bypass = !p.bypass;
+                    self.apply_params(p);
+                }
+                Action::ToggleMicMute => {
+                    self.devctl.send(Cmd::SetMute(!self.dev.mute));
+                }
+                Action::Quit => {
+                    self.quitting = true;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn apply_hotkeys(&mut self) {
+        self.settings.hotkey_mute = self.hotkey_edit[0].clone();
+        self.settings.hotkey_bypass = self.hotkey_edit[1].clone();
+        self.settings.hotkey_mic_mute = self.hotkey_edit[2].clone();
+        self.integration.set_hotkeys(
+            self.settings.hotkeys_enabled,
+            &[
+                (self.hotkey_edit[0].as_str(), Action::ToggleOutputMute),
+                (self.hotkey_edit[1].as_str(), Action::ToggleBypass),
+                (self.hotkey_edit[2].as_str(), Action::ToggleMicMute),
+            ],
+        );
+        self.hotkeys_applied = true;
+        self.mark_dirty();
+    }
+
+    pub(crate) fn hotkey_edit_mut(&mut self) -> &mut [String; 3] {
+        &mut self.hotkey_edit
+    }
+
+    pub(crate) fn hotkey_errors(&self) -> &[String] {
+        &self.integration.hotkey_errors
+    }
+
+    pub(crate) fn has_tray(&self) -> bool {
+        self.integration.has_tray()
+    }
+
+    /// Output xruns since the last reset.
+    pub(crate) fn xruns(&self) -> u64 {
+        self.shared
+            .underruns
+            .load(Relaxed)
+            .saturating_sub(self.xrun_base)
+    }
+
+    pub(crate) fn reset_xruns(&mut self) {
+        self.xrun_base = self.shared.underruns.load(Relaxed);
+    }
+
+    fn apply_theme(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+        let wanted = self.themes.resolve(&self.settings.theme);
+        if self.applied_theme.as_ref() != Some(&wanted) {
+            ctx.set_visuals(wanted.visuals());
+            set_theme(ctx, &wanted);
+            self.theme = wanted.clone();
+            self.applied_theme = Some(wanted);
+        }
+        if self.title_dark != Some(self.theme.dark) {
+            use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+            if let Ok(h) = frame.window_handle() {
+                if let RawWindowHandle::Win32(w) = h.as_raw() {
+                    crate::winsys::set_dark_title_bar(w.hwnd.get(), self.theme.dark);
+                    self.title_dark = Some(self.theme.dark);
+                }
+            }
+        }
+    }
+
+    fn drive_screenshots(&mut self, ctx: &egui::Context) {
+        let Some(s) = self.shots.as_mut() else { return };
+        // Collect a finished capture.
+        let img = ctx.input(|i| {
+            i.events.iter().find_map(|e| match e {
+                egui::Event::Screenshot { image, .. } => Some(image.clone()),
+                _ => None,
+            })
+        });
+        if let (Some(img), Some(name)) = (img, s.pending.take()) {
+            let _ = std::fs::create_dir_all(&s.dir);
+            let (w, h) = (img.size[0] as u32, img.size[1] as u32);
+            let mut raw = Vec::with_capacity(img.pixels.len() * 4);
+            for p in &img.pixels {
+                raw.extend_from_slice(&[p.r(), p.g(), p.b(), p.a()]);
+            }
+            if let Some(buf) = image::RgbaImage::from_raw(w, h, raw) {
+                let _ = buf.save(s.dir.join(format!("{name}.png")));
+            }
+            s.idx += 1;
+            s.wait = 6;
+        }
+        if s.wait > 0 {
+            s.wait -= 1;
+            ctx.request_repaint();
+            return;
+        }
+        if s.pending.is_some() {
+            ctx.request_repaint();
+            return;
+        }
+        let per_theme = Tab::ALL.len();
+        let total = s.themes.len() * per_theme;
+        if s.idx >= total {
+            self.quitting = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
+        }
+        let (ti, tabi) = (s.idx / per_theme, s.idx % per_theme);
+        let theme_name = s.themes[ti].clone();
+        let tab = Tab::ALL[tabi];
+        let file = format!(
+            "{}__{}",
+            theme_name
+                .chars()
+                .map(|c| if c.is_alphanumeric() { c } else { '_' })
+                .collect::<String>(),
+            tab.slug()
+        );
+        s.pending = Some(file);
+        s.wait = 14;
+        self.settings.theme = theme_name;
+        self.tab = tab;
+        // The capture is requested after the wait; do it now so it lands on a settled frame.
+        ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot);
+        ctx.request_repaint();
     }
 }
 
 impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let now = Instant::now();
         let dt = now.duration_since(self.last_frame).as_secs_f32().min(0.2);
         self.last_frame = now;
+
+        if self.themes.scan(false) {
+            self.applied_theme = None;
+        }
+        self.apply_theme(ctx, frame);
+        if !self.hotkeys_applied {
+            self.apply_hotkeys();
+        }
+        self.handle_actions(ctx);
+
+        // Close button -> hide to tray (when enabled and a tray exists).
+        if ctx.input(|i| i.viewport().close_requested())
+            && !self.quitting
+            && self.settings.minimize_to_tray
+            && self.integration.has_tray()
+            && self.shots.is_none()
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            self.hidden = true;
+        }
+        if self.hidden && !ctx.input(|i| i.viewport().minimized.unwrap_or(false)) {
+            // Start-minimized launch: hide on the first frame.
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        }
 
         self.dev = self.devctl.snapshot();
         if self.dev.revision != self.seen_rev {
@@ -191,43 +553,69 @@ impl eframe::App for App {
             self.on_devices_changed();
         }
         if let Some(f) = self.shared.take_fault() {
+            tracing::warn!("stream fault: {f}");
             self.engine = None;
             self.running_cfg = None;
             self.status = format!("{f} — retrying…");
             self.last_attempt = now;
         }
         self.supervise(now);
+        self.refresh_caps();
 
         self.shared.monitor_vol.store(self.settings.monitor_volume);
         self.m_in.update(self.shared.meters.in_peak.take(), dt);
         self.m_out.update(self.shared.meters.out_peak.take(), dt);
         self.m_hw.update(self.dev.peak, dt);
-        let gr_now = self.shared.meters.gr_db.take();
-        self.gr = if gr_now > self.gr {
-            gr_now
-        } else {
-            (self.gr - 40.0 * dt).max(gr_now)
+        let decay = |cur: f32, now: f32| {
+            if now > cur {
+                now
+            } else {
+                (cur - 40.0 * dt).max(now)
+            }
         };
+        self.gr = decay(self.gr, self.shared.meters.gr_db.take());
+        self.deess_gr = decay(self.deess_gr, self.shared.meters.deess_gr_db.take());
+        if self.engine.is_some() {
+            self.analyzer.update(dt);
+        }
+        if let Some(r) = &self.recorder {
+            if r.seconds() > 600.0 {
+                // Safety cap: 10 minutes per test recording.
+                self.stop_recording();
+            }
+        }
+
+        self.drive_screenshots(ctx);
 
         let mut p = self.params;
         let mut changed = false;
-
         self.top_panel(ctx, &mut p, &mut changed);
         self.bottom_panel(ctx);
         self.left_panel(ctx, now);
         egui::CentralPanel::default().show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                for t in Tab::ALL {
+                    if ui.selectable_label(self.tab == t, t.label()).clicked() {
+                        self.tab = t;
+                    }
+                }
+            });
+            ui.separator();
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    changed |= self.chain_ui(ui, &mut p);
+                .show(ui, |ui| match self.tab {
+                    Tab::Chain => changed |= self.chain_ui(ui, &mut p),
+                    Tab::Spectrum => self.spectrum_tab(ui),
+                    Tab::Audio => self.audio_tab(ui),
+                    Tab::Setup => self.setup_tab(ui),
+                    Tab::Presets => changed |= self.presets_tab(ui, &mut p),
+                    Tab::Appearance => self.appearance_tab(ui),
+                    Tab::System => self.system_tab(ui),
                 });
         });
 
         if changed {
-            self.params = p;
-            self.settings.params = p;
-            self.shared.params.set(p);
-            self.mark_dirty();
+            self.apply_params(p);
         }
         if self
             .dirty_since
@@ -236,20 +624,75 @@ impl eframe::App for App {
             self.settings.save();
             self.dirty_since = None;
         }
-        ctx.request_repaint_after(Duration::from_millis(33));
+        if self.integration.has_tray() && (now.elapsed().as_millis() < 5) {
+            let state = if self.params.output.mute {
+                "output muted"
+            } else if self.params.bypass {
+                "bypassed"
+            } else if self.engine.is_some() {
+                "running"
+            } else {
+                "stopped"
+            };
+            self.integration
+                .set_tooltip(&format!("AT2020USB-X Control Panel — {state}"));
+        }
+        ctx.request_repaint_after(Duration::from_millis(if self.hidden { 250 } else { 33 }));
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.stop_recording();
         self.settings.params = self.params;
         self.settings.save();
         self.engine = None;
     }
 }
 
+impl App {
+    pub(crate) fn stop_recording(&mut self) {
+        if let Some(r) = self.recorder.take() {
+            let path = r.path.clone();
+            match r.finish() {
+                Ok(secs) => {
+                    self.rec_msg = format!("Saved {secs:.1} s to {}", path.display());
+                    self.last_recording = Some((path, secs));
+                }
+                Err(e) => self.rec_msg = format!("Recording failed: {e:#}"),
+            }
+        }
+    }
+
+    pub(crate) fn start_recording(&mut self) {
+        let dir = settings::app_dir().join("recordings");
+        let name = format!("test-{}.wav", unix_stamp());
+        let path = dir.join(name);
+        let src = if self.rec_raw {
+            crate::shared::REC_RAW
+        } else {
+            crate::shared::REC_PROCESSED
+        };
+        match Recorder::start(self.shared.clone(), &path, src) {
+            Ok(r) => {
+                self.recorder = Some(r);
+                self.rec_msg.clear();
+            }
+            Err(e) => self.rec_msg = format!("Could not start recording: {e:#}"),
+        }
+    }
+}
+
+fn unix_stamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 // ------------------------------------------------------------------ panels --
 
 impl App {
     fn top_panel(&mut self, ctx: &egui::Context, p: &mut ChainParams, changed: &mut bool) {
+        let th = self.theme.clone();
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
             ui.add_space(4.0);
             // --- row 1: presets + global switches
@@ -259,7 +702,7 @@ impl App {
                 ui.label("Preset");
                 let mut chosen: Option<String> = None;
                 egui::ComboBox::from_id_salt("preset")
-                    .width(210.0)
+                    .width(200.0)
                     .selected_text(self.settings.preset.clone())
                     .show_ui(ui, |ui| {
                         for (n, _) in ChainParams::builtin() {
@@ -280,37 +723,36 @@ impl App {
                     self.apply_preset(&n);
                     *p = self.params;
                 }
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.new_preset_name)
-                        .hint_text("preset name")
-                        .desired_width(130.0),
-                );
+                // A/B compare: the two slots swap on click.
+                let (la, lb) = ("A", "B");
+                let on_b = self.ab_on_b;
                 if ui
-                    .add_enabled(
-                        !self.new_preset_name.trim().is_empty(),
-                        egui::Button::new("Save as"),
-                    )
+                    .selectable_label(!on_b, RichText::new(la).strong())
+                    .on_hover_text("Settings slot A")
                     .clicked()
+                    && on_b
                 {
-                    let name = self.new_preset_name.trim().to_string();
-                    match settings::save_user_preset(&name, p) {
-                        Ok(()) => {
-                            self.user_presets = settings::list_user_presets();
-                            self.settings.preset = name;
-                            self.new_preset_name.clear();
-                        }
-                        Err(e) => self.status = format!("Could not save preset: {e}"),
-                    }
+                    self.toggle_ab();
+                    *p = self.params;
                 }
-                if self.user_presets.contains(&self.settings.preset)
-                    && ui.button("Delete").clicked()
+                if ui
+                    .selectable_label(on_b, RichText::new(lb).strong())
+                    .on_hover_text("Settings slot B: switch to compare two settings instantly")
+                    .clicked()
+                    && !on_b
                 {
-                    settings::delete_user_preset(&self.settings.preset);
-                    self.user_presets = settings::list_user_presets();
-                    self.settings.preset = "Voice (Discord / calls)".into();
+                    self.toggle_ab();
+                    *p = self.params;
+                }
+                if self.recorder.is_some() {
+                    ui.colored_label(th.danger(), "● REC");
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let mute_col = if p.output.mute { RED } else { Color32::GRAY };
+                    let mute_col = if p.output.mute {
+                        th.danger()
+                    } else {
+                        th.weak()
+                    };
                     *changed |= ui
                         .toggle_value(
                             &mut p.output.mute,
@@ -430,15 +872,16 @@ impl App {
             });
             ui.add_space(2.0);
             // --- row 3: run control + meters
+            let style = self.settings.meter_style;
             ui.horizontal(|ui| {
                 let (txt, col) = if self.want_running {
-                    ("Stop", Color32::from_rgb(150, 50, 50))
+                    ("Stop", th.danger().gamma_multiply(0.75))
                 } else {
-                    ("Start", Color32::from_rgb(40, 120, 70))
+                    ("Start", th.ok().gamma_multiply(0.75))
                 };
                 if ui
                     .add(
-                        egui::Button::new(RichText::new(txt).strong())
+                        egui::Button::new(RichText::new(txt).strong().color(Color32::WHITE))
                             .fill(col)
                             .min_size(Vec2::new(80.0, 26.0)),
                     )
@@ -455,27 +898,36 @@ impl App {
                 }
                 ui.separator();
                 ui.vertical(|ui| {
-                    level_bar(ui, "IN", &self.m_in, Vec2::new(300.0, 12.0));
-                    level_bar(ui, "OUT", &self.m_out, Vec2::new(300.0, 12.0));
+                    level_meter(ui, "IN", &self.m_in, Vec2::new(280.0, 12.0), style);
+                    level_meter(ui, "OUT", &self.m_out, Vec2::new(280.0, 12.0), style);
                 });
                 ui.vertical(|ui| {
-                    gr_bar(ui, "GR", self.gr, Vec2::new(200.0, 12.0));
-                    let open = self
-                        .shared
-                        .meters
-                        .gate_open
-                        .load(std::sync::atomic::Ordering::Relaxed);
+                    gr_bar(ui, "Comp", self.gr, 24.0, Vec2::new(170.0, 12.0));
+                    gr_bar(ui, "De-ess", self.deess_gr, 12.0, Vec2::new(170.0, 12.0));
+                });
+                ui.vertical(|ui| {
+                    let open = self.shared.meters.gate_open.load(Relaxed);
+                    let vad_open = self.shared.meters.vad_gate_open.load(Relaxed);
                     let vad = self.shared.meters.vad.load();
+                    vad_meter(
+                        ui,
+                        vad,
+                        p.vad_gate.threshold,
+                        p.vad_gate.enabled,
+                        vad_open,
+                        Vec2::new(120.0, 12.0),
+                    );
                     ui.horizontal(|ui| {
                         ui.colored_label(
-                            if open { GREEN } else { Color32::from_gray(120) },
-                            if open {
+                            if open { th.ok() } else { th.weak() },
+                            if !p.gate.enabled {
+                                "○ Gate off"
+                            } else if open {
                                 "● Gate open"
                             } else {
                                 "○ Gate closed"
                             },
                         );
-                        ui.label(RichText::new(format!("Voice {:>3.0}%", vad * 100.0)).monospace());
                     });
                 });
             });
@@ -484,30 +936,37 @@ impl App {
     }
 
     fn bottom_panel(&mut self, ctx: &egui::Context) {
+        let th = self.theme.clone();
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.label(&self.status);
                 if let Some(e) = &self.engine {
                     ui.separator();
-                    ui.label(format!("≈{:.0} ms + device buffers", e.latency_ms()));
-                    let u = self.shared.underruns.load(std::sync::atomic::Ordering::Relaxed);
+                    ui.label(format!("≈{:.0} ms end-to-end", e.latency_ms()));
+                    let u = self.xruns();
+                    ui.separator();
                     if u > 0 {
-                        ui.separator();
-                        ui.colored_label(YELLOW, format!("{u} output underruns"));
+                        ui.colored_label(th.warn(), format!("{u} xruns"));
+                    } else {
+                        ui.colored_label(th.ok(), "0 xruns");
                     }
                 }
                 if let Some(m) = &self.dev.message {
                     ui.separator();
-                    ui.colored_label(RED, m);
+                    ui.colored_label(th.danger(), m);
                 }
             });
             if self.settings.output_name.is_none() {
-                ui.colored_label(YELLOW, "No virtual cable found. Install VB-CABLE (or similar), pick \"CABLE Input\" as Output above, then choose \"CABLE Output\" as the microphone in Discord / OBS / your game.");
+                ui.colored_label(
+                    th.warn(),
+                    "No virtual cable found. See the “Cable setup” tab.",
+                );
             }
         });
     }
 
     fn left_panel(&mut self, ctx: &egui::Context, now: Instant) {
+        let th = self.theme.clone();
         egui::SidePanel::left("windows-device").resizable(false).exact_width(290.0).show(ctx, |ui| {
             ui.add_space(6.0);
             ui.heading("Microphone (Windows)");
@@ -515,9 +974,9 @@ impl App {
             let connected = self.dev.selected_name.is_some();
             let is_at = self.dev.selected_name.as_deref().is_some_and(|n| n.to_lowercase().contains("at2020"));
             match (&self.dev.selected_name, is_at) {
-                (Some(n), true) => ui.colored_label(GREEN, format!("● {n}")),
-                (Some(n), false) => ui.colored_label(YELLOW, format!("● {n} (not an AT2020)")),
-                _ => ui.colored_label(RED, "○ No microphone connected"),
+                (Some(n), true) => ui.colored_label(th.ok(), format!("● {n}")),
+                (Some(n), false) => ui.colored_label(th.warn(), format!("● {n} (not an AT2020)")),
+                _ => ui.colored_label(th.danger(), "○ No microphone connected"),
             };
             ui.add_space(8.0);
 
@@ -533,17 +992,17 @@ impl App {
                 if r.changed() || r.dragged() {
                     self.vol_hold_until = now + Duration::from_millis(500);
                 }
-                ui.label(RichText::new(format!("{:+.1} dB  (range {:.1} … {:+.1} dB)", self.dev.volume_db, self.dev.db_min, self.dev.db_max)).small().weak());
+                ui.label(weak(ui, format!("{:+.1} dB  (range {:.1} … {:+.1} dB)", self.dev.volume_db, self.dev.db_min, self.dev.db_max)));
                 ui.add_space(6.0);
 
                 let muted = self.dev.mute;
-                let (t, c) = if muted { ("MUTED — click to unmute", Color32::from_rgb(170, 50, 50)) } else { ("LIVE — click to mute", Color32::from_rgb(40, 110, 70)) };
-                if ui.add(egui::Button::new(RichText::new(t).strong()).fill(c).min_size(Vec2::new(ui.available_width(), 34.0))).clicked() {
+                let (t, c) = if muted { ("MUTED — click to unmute", th.danger().gamma_multiply(0.8)) } else { ("LIVE — click to mute", th.ok().gamma_multiply(0.8)) };
+                if ui.add(egui::Button::new(RichText::new(t).strong().color(Color32::WHITE)).fill(c).min_size(Vec2::new(ui.available_width(), 34.0))).clicked() {
                     self.devctl.send(Cmd::SetMute(!muted));
                 }
                 ui.add_space(8.0);
-                level_bar(ui, "Pk", &self.m_hw, Vec2::new(190.0, 12.0));
-                ui.label(RichText::new("Raw level as Windows sees it, before this app's chain.").small().weak());
+                level_meter(ui, "Pk", &self.m_hw, Vec2::new(170.0, 12.0), self.settings.meter_style);
+                ui.label(weak(ui, "Raw level as Windows sees it, before this app's chain."));
             });
 
             ui.add_space(10.0);
@@ -555,277 +1014,17 @@ impl App {
                     if ui.checkbox(&mut disabled, "Disable enhancements for this mic").changed() {
                         self.devctl.send(Cmd::SetSysFxDisabled(disabled));
                     }
-                    ui.label(RichText::new("Recommended: this app does its own processing. Changing it may require running as administrator.").small().weak());
+                    ui.label(weak(ui, "Recommended: this app does its own processing. Changing it may require running as administrator."));
                 }
                 None => {
-                    ui.label(RichText::new("State not exposed by this driver. Check Sound settings → Properties → Advanced.").small().weak());
+                    ui.label(weak(ui, "State not exposed by this driver. Check Sound settings → Properties → Advanced."));
                 }
             }
 
             ui.add_space(10.0);
             ui.separator();
             ui.label(RichText::new("About hardware controls").strong());
-            ui.label(RichText::new("Anything that exists only as a control on the microphone itself (knobs, switches, touch mute) is not exposed through Windows audio APIs, so it can't be read or changed here.").small().weak());
-            ui.add_space(8.0);
-            ui.label(RichText::new("Other apps").strong());
-            ui.label(RichText::new("Windows can't create a microphone without a driver. This app plays the processed audio into a virtual cable's playback side; in Discord / OBS / games choose the cable's recording side (e.g. \"CABLE Output\") as the microphone.").small().weak());
+            ui.label(weak(ui, "Anything that exists only as a control on the microphone itself (knobs, switches, touch mute) is not exposed through Windows audio APIs, so it can't be read or changed here."));
         });
-    }
-
-    fn chain_ui(&mut self, ui: &mut egui::Ui, p: &mut ChainParams) -> bool {
-        let mut c = false;
-        ui.spacing_mut().slider_width = 170.0;
-
-        // ---- EQ (full width)
-        c |= section(ui, "Equalizer", Some(&mut p.eq.enabled), |ui| {
-            let mut c = eq_graph(ui, &mut p.eq.bands, Vec2::new(ui.available_width(), 190.0));
-            ui.label(
-                RichText::new(
-                    "Drag points to set frequency & gain; scroll over a point to change Q.",
-                )
-                .small()
-                .weak(),
-            );
-            ui.horizontal_wrapped(|ui| {
-                for (i, b) in p.eq.bands.iter_mut().enumerate() {
-                    ui.group(|ui| {
-                        ui.vertical(|ui| {
-                            ui.horizontal(|ui| {
-                                c |= ui.checkbox(&mut b.enabled, "").changed();
-                                let kind = match b.kind {
-                                    BandKind::LowShelf => "Low shelf",
-                                    BandKind::Peak => "Peak",
-                                    BandKind::HighShelf => "High shelf",
-                                };
-                                ui.label(RichText::new(format!("{}  {}", i + 1, kind)).strong());
-                            });
-                            c |= ui
-                                .add(
-                                    egui::DragValue::new(&mut b.freq)
-                                        .speed(4.0)
-                                        .range(20.0..=20_000.0)
-                                        .suffix(" Hz"),
-                                )
-                                .changed();
-                            c |= ui
-                                .add(
-                                    egui::DragValue::new(&mut b.gain_db)
-                                        .speed(0.1)
-                                        .range(-18.0..=18.0)
-                                        .suffix(" dB")
-                                        .fixed_decimals(1),
-                                )
-                                .changed();
-                            c |= ui
-                                .add(
-                                    egui::DragValue::new(&mut b.q)
-                                        .speed(0.01)
-                                        .range(0.2..=10.0)
-                                        .prefix("Q ")
-                                        .fixed_decimals(2),
-                                )
-                                .changed();
-                        });
-                    });
-                }
-            });
-            c
-        });
-
-        // ---- Row of three
-        let comp_snap = p.comp; // read-only copy for the curve (the closure below borrows p.comp fields mutably)
-        ui.columns(3, |cols| {
-            c |= section(&mut cols[0], "Input", None, |ui| {
-                let mut c = false;
-                ui.horizontal(|ui| {
-                    ui.label("Channel");
-                    c |= ui
-                        .selectable_value(&mut p.input.channel, ChannelMode::Mix, "Mix")
-                        .changed();
-                    c |= ui
-                        .selectable_value(&mut p.input.channel, ChannelMode::Left, "Left")
-                        .changed();
-                    c |= ui
-                        .selectable_value(&mut p.input.channel, ChannelMode::Right, "Right")
-                        .changed();
-                });
-                c |= row_slider(ui, "Gain", &mut p.input.gain_db, -24.0..=24.0, " dB", false);
-                c |= ui
-                    .checkbox(&mut p.input.phase_invert, "Invert phase")
-                    .changed();
-                c |= ui
-                    .checkbox(&mut p.input.lowcut_on, "Low-cut filter (12 dB/oct)")
-                    .changed();
-                c |= row_slider(
-                    ui,
-                    "Cutoff",
-                    &mut p.input.lowcut_hz,
-                    20.0..=300.0,
-                    " Hz",
-                    true,
-                );
-                c
-            });
-            c |= section(
-                &mut cols[0],
-                "Noise suppression (RNNoise)",
-                Some(&mut p.denoise.enabled),
-                |ui| {
-                    let c = row_slider(
-                        ui,
-                        "Strength",
-                        &mut p.denoise.strength,
-                        0.0..=1.0,
-                        "",
-                        false,
-                    );
-                    ui.label(
-                        RichText::new("Neural suppressor tuned for voice. Adds ~10 ms.")
-                            .small()
-                            .weak(),
-                    );
-                    c
-                },
-            );
-
-            c |= section(
-                &mut cols[1],
-                "Noise gate",
-                Some(&mut p.gate.enabled),
-                |ui| {
-                    let mut c = row_slider(
-                        ui,
-                        "Threshold",
-                        &mut p.gate.threshold_db,
-                        -80.0..=0.0,
-                        " dB",
-                        false,
-                    );
-                    c |= row_slider(
-                        ui,
-                        "Hysteresis",
-                        &mut p.gate.hysteresis_db,
-                        0.0..=20.0,
-                        " dB",
-                        false,
-                    );
-                    c |= row_slider(
-                        ui,
-                        "Attack",
-                        &mut p.gate.attack_ms,
-                        0.1..=50.0,
-                        " ms",
-                        false,
-                    );
-                    c |= row_slider(ui, "Hold", &mut p.gate.hold_ms, 0.0..=500.0, " ms", false);
-                    c |= row_slider(
-                        ui,
-                        "Release",
-                        &mut p.gate.release_ms,
-                        10.0..=1000.0,
-                        " ms",
-                        false,
-                    );
-                    c |= row_slider(ui, "Range", &mut p.gate.range_db, -80.0..=0.0, " dB", false);
-                    c
-                },
-            );
-
-            c |= section(
-                &mut cols[2],
-                "Compressor",
-                Some(&mut p.comp.enabled),
-                |ui| {
-                    let mut c = false;
-                    comp_graph(ui, &comp_snap, 120.0);
-                    c |= row_slider(
-                        ui,
-                        "Threshold",
-                        &mut p.comp.threshold_db,
-                        -60.0..=0.0,
-                        " dB",
-                        false,
-                    );
-                    c |= row_slider(ui, "Ratio", &mut p.comp.ratio, 1.0..=20.0, " : 1", false);
-                    c |= row_slider(
-                        ui,
-                        "Attack",
-                        &mut p.comp.attack_ms,
-                        0.1..=100.0,
-                        " ms",
-                        false,
-                    );
-                    c |= row_slider(
-                        ui,
-                        "Release",
-                        &mut p.comp.release_ms,
-                        10.0..=1000.0,
-                        " ms",
-                        false,
-                    );
-                    c |= row_slider(ui, "Knee", &mut p.comp.knee_db, 0.0..=24.0, " dB", false);
-                    c |= ui
-                        .checkbox(&mut p.comp.auto_makeup, "Auto make-up")
-                        .changed();
-                    if p.comp.auto_makeup {
-                        ui.label(format!(
-                            "Make-up: +{:.1} dB (auto)",
-                            comp_auto_makeup_db(&comp_snap)
-                        ));
-                    } else {
-                        c |= row_slider(
-                            ui,
-                            "Make-up",
-                            &mut p.comp.makeup_db,
-                            0.0..=24.0,
-                            " dB",
-                            false,
-                        );
-                    }
-                    c
-                },
-            );
-        });
-
-        // ---- Output / limiter
-        ui.columns(2, |cols| {
-            c |= section(
-                &mut cols[0],
-                "Limiter",
-                Some(&mut p.limiter.enabled),
-                |ui| {
-                    let mut c = row_slider(
-                        ui,
-                        "Ceiling",
-                        &mut p.limiter.ceiling_db,
-                        -12.0..=0.0,
-                        " dB",
-                        false,
-                    );
-                    c |= row_slider(
-                        ui,
-                        "Release",
-                        &mut p.limiter.release_ms,
-                        5.0..=500.0,
-                        " ms",
-                        false,
-                    );
-                    c
-                },
-            );
-            c |= section(&mut cols[1], "Output", None, |ui| {
-                let mut c = row_slider(
-                    ui,
-                    "Gain",
-                    &mut p.output.gain_db,
-                    -24.0..=24.0,
-                    " dB",
-                    false,
-                );
-                c |= ui.checkbox(&mut p.output.mute, "Mute output").changed();
-                c
-            });
-        });
-        c
     }
 }

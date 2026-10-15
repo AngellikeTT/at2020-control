@@ -12,6 +12,18 @@ nnnoiseless = "0.5"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+triple_buffer = "8.1.1"
+realfft = "3.5.0"
+hound = "3.5.1"
+toml = "1.0.7"
+tray-icon = "0.24.2"
+global-hotkey = "0.7.0"
+rfd = "0.17.2"
+raw-window-handle = "0.6.2"
+image = { version = "0.25.6", default-features = false, features = ["png"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "env-filter", "std"] }
+tracing-appender = "0.2.5"
 
 [target.'cfg(windows)'.dependencies]
 windows-core = "0.58"
@@ -24,6 +36,8 @@ windows = { version = "0.58", features = [
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Console",
+    "Win32_System_Registry",
+    "Win32_Graphics_Dwm",
     "Win32_System_ProcessStatus",
     "Win32_System_Threading",
     "Win32_UI_Shell_PropertiesSystem",

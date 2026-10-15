@@ -1,8 +1,12 @@
 //! State shared between the UI thread and the real-time audio callbacks.
+//! Everything the audio thread touches is lock-free: atomics, SPSC rings and a
+//! triple buffer for the parameter set.
 
 use crate::params::ChainParams;
+use crate::ring::Ring;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering::Relaxed};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use triple_buffer::{triple_buffer, Input, Output};
 
 pub struct AtomicF32(AtomicU32);
 impl AtomicF32 {
@@ -27,24 +31,46 @@ impl AtomicF32 {
     }
 }
 
-/// Parameter hand-off: UI writes under the mutex and bumps `version`; the audio
-/// thread notices the bump and `try_lock`s (never blocks).
+/// Parameter hand-off. The UI publishes into a triple buffer; the audio thread reads
+/// the newest published value without blocking, locking or allocating.
 pub struct ParamsShared {
-    pub version: AtomicU64,
-    pub data: Mutex<ChainParams>,
+    last: Mutex<ChainParams>,
+    writer: Mutex<Option<Input<ChainParams>>>,
 }
+
 impl ParamsShared {
     pub fn new(p: ChainParams) -> Self {
         Self {
-            version: AtomicU64::new(1),
-            data: Mutex::new(p),
+            last: Mutex::new(p),
+            writer: Mutex::new(None),
         }
     }
+
+    /// Called by the UI thread.
     pub fn set(&self, p: ChainParams) {
-        if let Ok(mut g) = self.data.lock() {
-            *g = p;
+        if let Ok(mut l) = self.last.lock() {
+            *l = p;
         }
-        self.version.fetch_add(1, Relaxed);
+        if let Ok(mut w) = self.writer.lock() {
+            if let Some(w) = w.as_mut() {
+                w.write(p);
+            }
+        }
+    }
+
+    pub fn current(&self) -> ChainParams {
+        self.last.lock().map(|l| *l).unwrap_or_default()
+    }
+
+    /// Creates a fresh reader seeded with the latest parameters. Each engine start
+    /// attaches once; a previous reader simply stops receiving updates.
+    pub fn attach(&self) -> Output<ChainParams> {
+        let p = self.current();
+        let (input, output) = triple_buffer(&p);
+        if let Ok(mut w) = self.writer.lock() {
+            *w = Some(input);
+        }
+        output
     }
 }
 
@@ -52,9 +78,15 @@ pub struct Meters {
     pub in_peak: AtomicF32,
     pub out_peak: AtomicF32,
     pub gr_db: AtomicF32,
+    pub deess_gr_db: AtomicF32,
     pub vad: AtomicF32,
     pub gate_open: AtomicBool,
+    pub vad_gate_open: AtomicBool,
 }
+
+/// Which signal the recorder taps.
+pub const REC_PROCESSED: u32 = 0;
+pub const REC_RAW: u32 = 1;
 
 pub struct Shared {
     pub params: ParamsShared,
@@ -65,6 +97,16 @@ pub struct Shared {
     pub underruns: AtomicU64,
     pub fault_flag: AtomicBool,
     pub fault: Mutex<Option<String>>,
+    /// Post-chain mono samples for the spectrum analyzer.
+    pub spec_out: Arc<Ring>,
+    /// Pre-chain (after input gain/mixdown) mono samples for the analyzer.
+    pub spec_in: Arc<Ring>,
+    /// Recorder tap; written only while `rec_active`.
+    pub rec_ring: Arc<Ring>,
+    pub rec_active: AtomicBool,
+    pub rec_source: AtomicU32,
+    /// Number of audio threads registered with MMCSS "Pro Audio".
+    pub mmcss_threads: AtomicU32,
 }
 
 impl Shared {
@@ -75,8 +117,10 @@ impl Shared {
                 in_peak: AtomicF32::new(0.0),
                 out_peak: AtomicF32::new(0.0),
                 gr_db: AtomicF32::new(0.0),
+                deess_gr_db: AtomicF32::new(0.0),
                 vad: AtomicF32::new(0.0),
                 gate_open: AtomicBool::new(true),
+                vad_gate_open: AtomicBool::new(true),
             },
             monitor_vol: AtomicF32::new(0.7),
             monitor_active: AtomicBool::new(false),
@@ -84,6 +128,12 @@ impl Shared {
             underruns: AtomicU64::new(0),
             fault_flag: AtomicBool::new(false),
             fault: Mutex::new(None),
+            spec_out: Arc::new(Ring::new(1 << 14)),
+            spec_in: Arc::new(Ring::new(1 << 14)),
+            rec_ring: Arc::new(Ring::new(1 << 18)),
+            rec_active: AtomicBool::new(false),
+            rec_source: AtomicU32::new(REC_PROCESSED),
+            mmcss_threads: AtomicU32::new(0),
         }
     }
     pub fn set_fault(&self, msg: String) {

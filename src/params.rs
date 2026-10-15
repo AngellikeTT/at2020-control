@@ -125,6 +125,54 @@ impl Default for EqParams {
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct DeEssParams {
+    pub enabled: bool,
+    /// Centre of the sibilance band.
+    pub freq_hz: f32,
+    /// Band level above which reduction starts.
+    pub threshold_db: f32,
+    pub ratio: f32,
+    /// Largest reduction applied (positive dB).
+    pub max_reduction_db: f32,
+}
+impl Default for DeEssParams {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            freq_hz: 6500.0,
+            threshold_db: -32.0,
+            ratio: 4.0,
+            max_reduction_db: 10.0,
+        }
+    }
+}
+
+/// Gate driven by RNNoise's voice-activity probability instead of level.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VadGateParams {
+    pub enabled: bool,
+    /// Probability (0..1) above which the gate opens.
+    pub threshold: f32,
+    pub hold_ms: f32,
+    pub release_ms: f32,
+    /// Attenuation while closed (negative dB).
+    pub range_db: f32,
+}
+impl Default for VadGateParams {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            threshold: 0.5,
+            hold_ms: 150.0,
+            release_ms: 120.0,
+            range_db: -30.0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct CompParams {
     pub enabled: bool,
     pub threshold_db: f32,
@@ -190,7 +238,9 @@ pub struct ChainParams {
     pub input: InputParams,
     pub denoise: DenoiseParams,
     pub gate: GateParams,
+    pub vad_gate: VadGateParams,
     pub eq: EqParams,
+    pub deess: DeEssParams,
     pub comp: CompParams,
     pub limiter: LimiterParams,
     pub output: OutputParams,
@@ -202,7 +252,9 @@ impl ChainParams {
         p.input.lowcut_on = false;
         p.denoise.enabled = false;
         p.gate.enabled = false;
+        p.vad_gate.enabled = false;
         p.eq.enabled = false;
+        p.deess.enabled = false;
         p.comp.enabled = false;
         p
     }

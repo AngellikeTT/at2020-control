@@ -4,25 +4,43 @@
 compile_error!("This application targets Windows 10/11 (x86_64-pc-windows-msvc).");
 
 mod app;
+mod cli;
 mod denoise;
 mod devctl;
 mod dsp;
 mod engine;
+mod fonts;
+mod icon;
+mod integration;
+mod logging;
 mod params;
+mod recorder;
 mod resample;
 mod ring;
 mod selftest;
 mod settings;
 mod shared;
+mod spectrum;
+mod tabs;
+mod theme;
 mod widgets;
+mod winsys;
 
 use eframe::egui;
 
 fn attach_console() {
     use windows::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
+    // SAFETY: no pointers; failure (no parent console) is harmless.
     unsafe {
         let _ = AttachConsole(ATTACH_PARENT_PROCESS);
     }
+}
+
+fn arg_value(args: &[String], key: &str) -> Option<String> {
+    args.iter()
+        .position(|a| a == key)
+        .and_then(|i| args.get(i + 1))
+        .cloned()
 }
 
 fn main() -> eframe::Result<()> {
@@ -32,9 +50,28 @@ fn main() -> eframe::Result<()> {
         let opts = selftest::Options::from_args(&args);
         std::process::exit(selftest::run(&opts));
     }
+    if args
+        .iter()
+        .any(|a| a == "--process" || a == "--list-presets")
+    {
+        attach_console();
+        std::process::exit(cli::run(&args));
+    }
+
+    let _log_guard = logging::init();
+    let opts = app::LaunchOptions {
+        minimized: args.iter().any(|a| a == "--minimized"),
+        screenshots: arg_value(&args, "--screenshots").map(std::path::PathBuf::from),
+    };
+    let icon = egui::IconData {
+        rgba: icon::rgba(64),
+        width: 64,
+        height: 64,
+    };
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("AT2020USB-X Control Panel")
+            .with_icon(icon)
             .with_inner_size([1180.0, 860.0])
             .with_min_inner_size([1000.0, 640.0]),
         ..Default::default()
@@ -42,6 +79,6 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "AT2020USB-X Control Panel",
         options,
-        Box::new(|cc| Ok(Box::new(app::App::new(cc)))),
+        Box::new(move |cc| Ok(Box::new(app::App::new(cc, opts)))),
     )
 }

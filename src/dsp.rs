@@ -66,6 +66,12 @@ impl Coeffs {
             1.0 - al,
         )
     }
+    /// Constant-0-dB-peak band-pass.
+    pub fn bandpass(fs: f64, f0: f64, q: f64) -> Self {
+        let (c, s) = Self::w(fs, f0);
+        let al = s / (2.0 * q);
+        Self::norm(al, 0.0, -al, 1.0 + al, -2.0 * c, 1.0 - al)
+    }
     pub fn lowpass(fs: f64, f0: f64, q: f64) -> Self {
         let (c, s) = Self::w(fs, f0);
         let al = s / (2.0 * q);
@@ -306,10 +312,6 @@ impl Compressor {
             gr_db: 0.0,
         }
     }
-    pub fn reset(&mut self) {
-        self.det = 0.0;
-        self.gr_db = 0.0;
-    }
     /// Returns the maximum gain reduction (positive dB) applied during the block.
     pub fn process(&mut self, buf: &mut [f32], p: &CompParams) -> f32 {
         let att = tc_coef(p.attack_ms.max(0.1));
@@ -366,6 +368,101 @@ impl Limiter {
     }
 }
 
+// ------------------------------------------------------------- de-esser ----
+
+/// Split-band de-esser: a band-pass around the sibilance frequency drives a
+/// compressor-style gain computer, and the reduction is applied to that band only
+/// (`y = x - band * (1 - g)`), so the rest of the spectrum is untouched.
+pub struct DeEsser {
+    bp: Biquad,
+    cached_hz: f32,
+    env: f32,
+    gr_db: f32,
+}
+
+impl DeEsser {
+    pub fn new() -> Self {
+        Self {
+            bp: Biquad::new(Coeffs::identity()),
+            cached_hz: 0.0,
+            env: 0.0,
+            gr_db: 0.0,
+        }
+    }
+
+    /// Returns the largest gain reduction (positive dB) applied during the block.
+    pub fn process(&mut self, buf: &mut [f32], p: &DeEssParams) -> f32 {
+        if (self.cached_hz - p.freq_hz).abs() > 0.5 {
+            self.bp
+                .set(Coeffs::bandpass(SAMPLE_RATE as f64, p.freq_hz as f64, 1.2));
+            self.cached_hz = p.freq_hz;
+        }
+        let det_rel = tc_coef(4.0);
+        let att = tc_coef(0.5);
+        let rel = tc_coef(25.0);
+        let inv = 1.0 / p.ratio.max(1.0);
+        let max_red = p.max_reduction_db.max(0.0);
+        let mut max_gr = 0.0f32;
+        for x in buf.iter_mut() {
+            let band = self.bp.process(*x as f64) as f32;
+            self.env = band.abs().max(self.env * det_rel);
+            let over = lin_to_db(self.env.max(1e-6)) - p.threshold_db;
+            let target = if over > 0.0 {
+                (over * (1.0 - inv)).min(max_red)
+            } else {
+                0.0
+            };
+            let c = if target > self.gr_db { att } else { rel };
+            self.gr_db = c * self.gr_db + (1.0 - c) * target;
+            *x -= band * (1.0 - db_to_lin(-self.gr_db));
+            max_gr = max_gr.max(self.gr_db);
+        }
+        max_gr
+    }
+}
+
+// -------------------------------------------------------------- vad gate ----
+
+/// Gate opened by RNNoise's voice probability rather than by level, so steady
+/// non-voice sounds (fans, keyboard) stay shut even when loud.
+pub struct VadGate {
+    gain: f32,
+    open: bool,
+    hold: u32,
+}
+
+impl VadGate {
+    pub fn new() -> Self {
+        Self {
+            gain: 1.0,
+            open: true,
+            hold: 0,
+        }
+    }
+
+    /// `vad` is the probability for this block. Returns whether the gate is open.
+    pub fn process(&mut self, buf: &mut [f32], vad: f32, p: &VadGateParams) -> bool {
+        let frames_hold = (p.hold_ms.max(0.0) * 0.001 * SAMPLE_RATE / FRAME as f32).ceil() as u32;
+        if vad >= p.threshold {
+            self.open = true;
+            self.hold = frames_hold;
+        } else if self.hold > 0 {
+            self.hold -= 1;
+        } else {
+            self.open = false;
+        }
+        let floor = db_to_lin(p.range_db.min(0.0));
+        let target = if self.open { 1.0 } else { floor };
+        let a_att = 1.0 - tc_coef(3.0);
+        let a_rel = 1.0 - tc_coef(p.release_ms.max(1.0) / 6.9);
+        for x in buf.iter_mut() {
+            self.gain += (target - self.gain) * if target > self.gain { a_att } else { a_rel };
+            *x *= self.gain;
+        }
+        self.open
+    }
+}
+
 // ---------------------------------------------------------------- chain -----
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -373,18 +470,127 @@ pub struct FrameStats {
     pub in_peak: f32,
     pub out_peak: f32,
     pub gr_db: f32,
+    pub deess_gr_db: f32,
     pub gate_open: bool,
+    pub vad_gate_open: bool,
     pub vad: f32,
+}
+
+/// Parameter smoothing coefficient per 10 ms frame (time constant ~ 20 ms).
+const SMOOTH: f32 = 0.4;
+
+#[inline]
+fn sm(cur: &mut f32, tgt: f32) {
+    *cur += (tgt - *cur) * SMOOTH;
+    if (tgt - *cur).abs() < 1e-5 * tgt.abs().max(1.0) {
+        *cur = tgt;
+    }
+}
+/// Smooth a frequency on a log axis.
+#[inline]
+fn sm_hz(cur: &mut f32, tgt: f32) {
+    let mut l = cur.max(1.0).ln();
+    sm(&mut l, tgt.max(1.0).ln());
+    *cur = l.exp();
+    if (tgt - *cur).abs() < 1e-3 * tgt {
+        *cur = tgt;
+    }
+}
+
+/// Folds every enable switch into a neutral numeric value so that toggling a stage is
+/// just another smoothed parameter move (no discrete switching in the signal path).
+pub fn effective_params(p: &ChainParams) -> ChainParams {
+    let mut e = *p;
+    if !p.input.lowcut_on {
+        e.input.lowcut_hz = 10.0;
+    }
+    if !p.denoise.enabled {
+        e.denoise.strength = 0.0;
+    }
+    if !p.vad_gate.enabled {
+        e.vad_gate.range_db = 0.0;
+    }
+    for b in e.eq.bands.iter_mut() {
+        if !p.eq.enabled || !b.enabled {
+            b.gain_db = 0.0;
+        }
+        b.enabled = true;
+    }
+    e.eq.enabled = true;
+    if !p.deess.enabled {
+        e.deess.max_reduction_db = 0.0;
+    }
+    if !p.comp.enabled {
+        e.comp.ratio = 1.0;
+        e.comp.makeup_db = 0.0;
+        e.comp.auto_makeup = false;
+    }
+    if !p.limiter.enabled {
+        e.limiter.ceiling_db = 0.0;
+    }
+    e.limiter.enabled = true;
+    e.output.gain_db = if p.output.mute {
+        -120.0
+    } else {
+        p.output.gain_db
+    };
+    e
+}
+
+fn smooth_params(c: &mut ChainParams, t: &ChainParams) {
+    sm(&mut c.input.gain_db, t.input.gain_db);
+    sm_hz(&mut c.input.lowcut_hz, t.input.lowcut_hz);
+    sm(&mut c.denoise.strength, t.denoise.strength);
+    sm(&mut c.gate.threshold_db, t.gate.threshold_db);
+    sm(&mut c.gate.hysteresis_db, t.gate.hysteresis_db);
+    sm(&mut c.gate.attack_ms, t.gate.attack_ms);
+    sm(&mut c.gate.hold_ms, t.gate.hold_ms);
+    sm(&mut c.gate.release_ms, t.gate.release_ms);
+    sm(&mut c.gate.range_db, t.gate.range_db);
+    sm(&mut c.vad_gate.threshold, t.vad_gate.threshold);
+    sm(&mut c.vad_gate.hold_ms, t.vad_gate.hold_ms);
+    sm(&mut c.vad_gate.release_ms, t.vad_gate.release_ms);
+    sm(&mut c.vad_gate.range_db, t.vad_gate.range_db);
+    for (cb, tb) in c.eq.bands.iter_mut().zip(t.eq.bands.iter()) {
+        cb.kind = tb.kind;
+        sm_hz(&mut cb.freq, tb.freq);
+        sm(&mut cb.gain_db, tb.gain_db);
+        sm(&mut cb.q, tb.q);
+    }
+    sm_hz(&mut c.deess.freq_hz, t.deess.freq_hz);
+    sm(&mut c.deess.threshold_db, t.deess.threshold_db);
+    sm(&mut c.deess.ratio, t.deess.ratio);
+    sm(&mut c.deess.max_reduction_db, t.deess.max_reduction_db);
+    sm(&mut c.comp.threshold_db, t.comp.threshold_db);
+    sm(&mut c.comp.ratio, t.comp.ratio);
+    sm(&mut c.comp.attack_ms, t.comp.attack_ms);
+    sm(&mut c.comp.release_ms, t.comp.release_ms);
+    sm(&mut c.comp.knee_db, t.comp.knee_db);
+    sm(&mut c.comp.makeup_db, t.comp.makeup_db);
+    sm(&mut c.limiter.ceiling_db, t.limiter.ceiling_db);
+    sm(&mut c.limiter.release_ms, t.limiter.release_ms);
+    sm(&mut c.output.gain_db, t.output.gain_db);
+    // Discrete values follow immediately.
+    c.input.channel = t.input.channel;
+    c.input.phase_invert = t.input.phase_invert;
+    c.comp.auto_makeup = t.comp.auto_makeup;
 }
 
 pub struct Chain {
     hpf: Biquad,
     hpf_freq: f32,
     denoise: Denoiser,
+    vad_gate: VadGate,
     gate: Gate,
     eq: Eq,
+    deess: DeEsser,
     comp: Compressor,
     lim: Limiter,
+    cur: ChainParams,
+    started: bool,
+    g_in: f32,
+    g_out: f32,
+    bypass_mix: f32,
 }
 
 impl Chain {
@@ -397,40 +603,62 @@ impl Chain {
             )),
             hpf_freq: 80.0,
             denoise: Denoiser::new(),
+            vad_gate: VadGate::new(),
             gate: Gate::new(),
             eq: Eq::new(),
+            deess: DeEsser::new(),
             comp: Compressor::new(),
             lim: Limiter::new(),
+            cur: ChainParams::default(),
+            started: false,
+            g_in: 1.0,
+            g_out: 1.0,
+            bypass_mix: 0.0,
         }
     }
 
     /// Fixed algorithmic latency of the chain in samples (denoise frame + gate lookahead).
     pub const LATENCY_SAMPLES: usize = FRAME + GATE_LOOKAHEAD;
 
-    pub fn process(&mut self, buf: &mut [f32], p: &ChainParams) -> FrameStats {
+    pub fn process(&mut self, buf: &mut [f32], target: &ChainParams) -> FrameStats {
         debug_assert_eq!(buf.len(), FRAME);
-        let g_in = db_to_lin(p.input.gain_db) * if p.input.phase_invert { -1.0 } else { 1.0 };
-        let g_out = if p.output.mute {
+        let tgt = effective_params(target);
+        let sign = if tgt.input.phase_invert { -1.0 } else { 1.0 };
+        let tgt_in = db_to_lin(tgt.input.gain_db) * sign;
+        let tgt_out = if tgt.output.gain_db <= -119.0 {
             0.0
         } else {
-            db_to_lin(p.output.gain_db)
+            db_to_lin(tgt.output.gain_db)
         };
+        let tgt_bypass = if target.bypass { 1.0 } else { 0.0 };
+        if !self.started {
+            // First block snaps to the target so there is nothing to glide from.
+            self.cur = tgt;
+            self.g_in = tgt_in;
+            self.g_out = tgt_out;
+            self.bypass_mix = tgt_bypass;
+            self.started = true;
+        } else {
+            smooth_params(&mut self.cur, &tgt);
+        }
+        let p = self.cur;
+
         let mut st = FrameStats::default();
+        // Input gain with a per-sample linear ramp from the previous block's value.
+        let step_in = (tgt_in - self.g_in) / FRAME as f32;
+        let mut g = self.g_in;
         for x in buf.iter_mut() {
-            *x *= g_in;
+            g += step_in;
+            *x *= g;
             st.in_peak = st.in_peak.max(x.abs());
         }
+        self.g_in = tgt_in;
 
-        if p.bypass {
-            for x in buf.iter_mut() {
-                *x = (*x * g_out).clamp(-1.0, 1.0);
-                st.out_peak = st.out_peak.max(x.abs());
-            }
-            st.gate_open = true;
-            return st;
-        }
+        // Dry path for bypass (zero extra latency; crossfaded below).
+        let mut dry = [0.0f32; FRAME];
+        dry.copy_from_slice(buf);
 
-        if (p.input.lowcut_hz - self.hpf_freq).abs() > f32::EPSILON {
+        if (p.input.lowcut_hz - self.hpf_freq).abs() > 1e-3 {
             self.hpf.set(Coeffs::highpass(
                 SAMPLE_RATE as f64,
                 p.input.lowcut_hz as f64,
@@ -439,33 +667,48 @@ impl Chain {
             self.hpf_freq = p.input.lowcut_hz;
         }
         for x in buf.iter_mut() {
-            let y = self.hpf.process(*x as f64) as f32; // keep state warm even when off
-            if p.input.lowcut_on {
-                *x = y;
-            }
+            *x = self.hpf.process(*x as f64) as f32;
         }
 
-        st.vad = self.denoise.process(
-            buf,
-            if p.denoise.enabled {
-                p.denoise.strength
-            } else {
-                0.0
-            },
-        );
-        st.gate_open = self.gate.process(buf, &p.gate);
-        if p.eq.enabled {
-            self.eq.process(buf, &p.eq);
-        }
-        if p.comp.enabled {
-            st.gr_db = self.comp.process(buf, &p.comp);
-        } else {
-            self.comp.reset();
-        }
+        st.vad = self.denoise.process(buf, p.denoise.strength);
+        st.vad_gate_open =
+            self.vad_gate.process(buf, st.vad, &p.vad_gate) || !target.vad_gate.enabled;
+        let gate_p = GateParams {
+            enabled: target.gate.enabled,
+            ..p.gate
+        };
+        st.gate_open = self.gate.process(buf, &gate_p);
+        self.eq.process(buf, &p.eq);
+        st.deess_gr_db = self.deess.process(buf, &p.deess);
+        st.gr_db = self.comp.process(buf, &p.comp);
+
+        // Output gain ramp, then limiter.
+        let step_out = (tgt_out - self.g_out) / FRAME as f32;
+        let mut g = self.g_out;
         for x in buf.iter_mut() {
-            *x *= g_out;
+            g += step_out;
+            *x *= g;
         }
+        self.g_out = tgt_out;
         self.lim.process(buf, &p.limiter);
+
+        // Bypass crossfade (dry also gets output gain and a hard clamp).
+        let step_b = (tgt_bypass - self.bypass_mix) / FRAME as f32;
+        let mut m = self.bypass_mix;
+        for (x, d) in buf.iter_mut().zip(dry.iter()) {
+            m += step_b;
+            if m > 0.0 {
+                let dy = (*d * tgt_out).clamp(-1.0, 1.0);
+                *x = *x * (1.0 - m) + dy * m;
+            }
+        }
+        self.bypass_mix = tgt_bypass;
+        if target.bypass {
+            st.gate_open = true;
+            st.vad_gate_open = true;
+            st.gr_db = 0.0;
+            st.deess_gr_db = 0.0;
+        }
         for x in buf.iter() {
             st.out_peak = st.out_peak.max(x.abs());
         }
