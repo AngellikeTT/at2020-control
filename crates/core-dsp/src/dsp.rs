@@ -716,6 +716,48 @@ impl Chain {
     }
 }
 
+impl Default for Gate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Default for Eq {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Default for Compressor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Default for Limiter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Default for DeEsser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Default for VadGate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Default for Chain {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

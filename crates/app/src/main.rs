@@ -5,27 +5,15 @@ compile_error!("This application targets Windows 10/11 (x86_64-pc-windows-msvc).
 
 mod app;
 mod cli;
-mod denoise;
-mod devctl;
-mod dsp;
-mod engine;
 mod fonts;
 mod icon;
 mod integration;
 mod logging;
-mod params;
-mod recorder;
-mod resample;
-mod ring;
 mod selftest;
 mod settings;
-mod shared;
-mod spectrum;
 mod tabs;
 mod theme;
-mod wasapi_excl;
 mod widgets;
-mod winsys;
 
 use eframe::egui;
 

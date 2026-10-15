@@ -47,3 +47,9 @@ impl Denoiser {
         vad
     }
 }
+
+impl Default for Denoiser {
+    fn default() -> Self {
+        Self::new()
+    }
+}

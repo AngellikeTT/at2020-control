@@ -1,10 +1,10 @@
 //! Custom egui widgets: sections, sliders, level meters (three styles), EQ graph,
 //! compressor curve and spectrum plot. Colours come from the active [`Theme`].
 
-use crate::dsp::{comp_curve_db, eq_response_db, lin_to_db};
-use crate::params::*;
-use crate::spectrum::{bin_hz, BINS};
 use crate::theme::{MeterStyle, Theme};
+use core_dsp::dsp::{comp_curve_db, eq_response_db, lin_to_db};
+use core_dsp::params::*;
+use core_dsp::spectrum::{bin_hz, BINS};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, RichText, Sense, Stroke, Ui, Vec2};
 use std::ops::RangeInclusive;
 use std::sync::Arc;

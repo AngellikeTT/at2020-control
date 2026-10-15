@@ -32,6 +32,10 @@ impl Ring {
             .wrapping_sub(self.tail.load(Acquire))
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Producer side. Returns how many samples were accepted.
     pub fn push(&self, src: &[f32]) -> usize {
         let head = self.head.load(Relaxed);

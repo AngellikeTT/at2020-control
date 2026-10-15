@@ -1,8 +1,8 @@
 //! Test recording: a writer thread drains the audio thread's tap ring into a WAV file.
 
-use crate::params::SAMPLE_RATE;
 use crate::shared::Shared;
 use anyhow::{Context, Result};
+use core_dsp::params::SAMPLE_RATE;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
 use std::sync::Arc;

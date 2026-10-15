@@ -1,0 +1,17 @@
+[package]
+name = "device"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Windows audio devices: Core Audio control, shared (cpal) and exclusive WASAPI streams, recorder"
+
+[dependencies]
+core-dsp.workspace = true
+anyhow.workspace = true
+cpal.workspace = true
+triple_buffer.workspace = true
+tracing.workspace = true
+hound.workspace = true
+windows.workspace = true
+windows-core.workspace = true

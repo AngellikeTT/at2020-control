@@ -2,8 +2,8 @@
 //! Everything the audio thread touches is lock-free: atomics, SPSC rings and a
 //! triple buffer for the parameter set.
 
-use crate::params::ChainParams;
-use crate::ring::Ring;
+use core_dsp::params::ChainParams;
+use core_dsp::ring::Ring;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
 use triple_buffer::{triple_buffer, Input, Output};

@@ -1,11 +1,11 @@
 //! Tab bodies for the central panel.
 
 use crate::app::App;
-use crate::dsp::comp_auto_makeup_db;
-use crate::params::*;
 use crate::settings;
 use crate::theme::{MeterStyle, Rgb, Theme, FOLLOW_WINDOWS};
 use crate::widgets::*;
+use core_dsp::dsp::comp_auto_makeup_db;
+use core_dsp::params::*;
 use eframe::egui::{self, Color32, RichText, Vec2};
 use std::sync::atomic::Ordering::Relaxed;
 
@@ -561,7 +561,7 @@ impl App {
                 ui.label(format!(
                     "Latency ≈ {:.1} ms  (chain {:.1} ms + queue {:.1} ms{})",
                     e.latency_ms(),
-                    crate::dsp::Chain::LATENCY_SAMPLES as f32 / 48.0 + 5.0,
+                    core_dsp::dsp::Chain::LATENCY_SAMPLES as f32 / 48.0 + 5.0,
                     fill as f32 / 48.0,
                     if i.in_buffer.is_some() || i.out_buffer.is_some() {
                         " + fixed device buffers"
@@ -1093,7 +1093,7 @@ impl App {
             .checkbox(&mut sw, "Start with Windows (per-user, no admin needed)")
             .changed()
         {
-            match crate::winsys::set_autostart(sw) {
+            match device::winsys::set_autostart(sw) {
                 Ok(()) => {
                     self.settings.start_with_windows = sw;
                     self.mark_dirty();

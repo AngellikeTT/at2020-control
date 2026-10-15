@@ -136,17 +136,17 @@ checksum = "175571dd1d178ced59193a6fc02dde1b972eb0bc56c892cde9beeceac5bf0f6b"
 
 [[package]]
 name = "at2020-control"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
+ "core-dsp",
  "cpal",
+ "device",
  "eframe",
  "global-hotkey",
  "hound",
  "image",
- "nnnoiseless",
  "raw-window-handle",
- "realfft",
  "rfd",
  "serde",
  "serde_json",
@@ -155,9 +155,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "tray-icon",
- "triple_buffer",
  "windows 0.58.0",
- "windows-core 0.58.0",
 ]
 
 [[package]]
@@ -493,6 +491,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "core-dsp"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "hound",
+ "nnnoiseless",
+ "realfft",
+ "serde",
+]
+
+[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -729,6 +738,20 @@ name = "deranged"
 version = "0.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e9de72ce2ad1f90dc62fa25f0f430ef85eb4b0d8fa0be4f30373bc40a21d28e"
+
+[[package]]
+name = "device"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "core-dsp",
+ "cpal",
+ "hound",
+ "tracing",
+ "triple_buffer",
+ "windows 0.58.0",
+ "windows-core 0.58.0",
+]
 
 [[package]]
 name = "dirs"

@@ -12,12 +12,12 @@
 //! The single exception is a one-time MMCSS "Pro Audio" registration on each callback
 //! thread's first invocation, which is the only point where that thread is available.
 
-use crate::dsp::{Biquad, Chain, Coeffs};
-use crate::params::*;
-use crate::resample::Resampler;
-use crate::ring::Ring;
 use crate::shared::{Shared, REC_RAW};
 use anyhow::{anyhow, bail, Context, Result};
+use core_dsp::dsp::{Biquad, Chain, Coeffs};
+use core_dsp::params::*;
+use core_dsp::resample::Resampler;
+use core_dsp::ring::Ring;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{
     BufferSize, FromSample, Sample, SampleFormat, SizedSample, Stream, StreamConfig,

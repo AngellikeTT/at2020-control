@@ -1,6 +1,6 @@
 //! Persistence: settings.json plus named presets (TOML) under %APPDATA%\AT2020 Control Panel.
 
-use crate::params::ChainParams;
+use core_dsp::params::ChainParams;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};

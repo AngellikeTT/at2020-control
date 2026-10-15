@@ -1,0 +1,32 @@
+[package]
+name = "at2020-control"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description.workspace = true
+
+[[bin]]
+name = "at2020-control"
+path = "src/main.rs"
+
+[dependencies]
+core-dsp.workspace = true
+device.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+hound.workspace = true
+cpal.workspace = true
+tracing.workspace = true
+windows.workspace = true
+eframe = { version = "0.29", default-features = false, features = ["glow", "default_fonts"] }
+tray-icon = "0.24.2"
+global-hotkey = "0.7.0"
+rfd = "0.17.2"
+raw-window-handle = "0.6.2"
+image = { version = "0.25.6", default-features = false, features = ["png"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "env-filter", "std"] }
+tracing-appender = "0.2.5"
+

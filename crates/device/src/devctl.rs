@@ -9,7 +9,6 @@
 //!
 //! The UI talks to it through a command channel and reads a shared `DevState` snapshot.
 
-use eframe::egui;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -36,6 +35,9 @@ const KEY_DISABLE_SYSFX: PROPERTYKEY = PROPERTYKEY {
     fmtid: GUID::from_u128(0xE4870E26_3CC5_4CD2_BA46_CA0A9A70ED04),
     pid: 5,
 };
+
+/// Called from the device thread whenever fresh state is available (e.g. to repaint a UI).
+pub type Wake = Arc<dyn Fn() + Send + Sync>;
 
 #[derive(Clone, Debug, Default)]
 pub struct EndpointInfo {
@@ -80,13 +82,13 @@ pub struct DevCtl {
 }
 
 impl DevCtl {
-    pub fn spawn(ctx: egui::Context) -> Self {
+    pub fn spawn(wake: Wake) -> Self {
         let (tx, rx) = mpsc::channel();
         let state = Arc::new(Mutex::new(DevState::default()));
         let (st, tx2) = (state.clone(), tx.clone());
         let join = std::thread::Builder::new()
             .name("devctl-com".into())
-            .spawn(move || run(rx, tx2, st, ctx))
+            .spawn(move || run(rx, tx2, st, wake))
             .ok();
         Self { tx, state, join }
     }
@@ -231,13 +233,13 @@ struct Worker {
     vol: Option<IAudioEndpointVolume>,
     meter: Option<IAudioMeterInformation>,
     state: Arc<Mutex<DevState>>,
-    ctx: egui::Context,
+    wake: Wake,
     refresh_at: Option<Instant>,
     revision: u64,
 }
 
 impl Worker {
-    fn new(tx: Sender<Cmd>, state: Arc<Mutex<DevState>>, ctx: egui::Context) -> WinResult<Self> {
+    fn new(tx: Sender<Cmd>, state: Arc<Mutex<DevState>>, wake: Wake) -> WinResult<Self> {
         unsafe {
             let en: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
             let client: IMMNotificationClient = Notifier { tx: Mutex::new(tx) }.into();
@@ -251,7 +253,7 @@ impl Worker {
                 vol: None,
                 meter: None,
                 state,
-                ctx,
+                wake,
                 refresh_at: Some(Instant::now()),
                 revision: 0,
             })
@@ -318,7 +320,7 @@ impl Worker {
             });
         }
         self.poll(true);
-        self.ctx.request_repaint();
+        (self.wake)();
     }
 
     unsafe fn bind(&mut self, idx: Option<usize>) {
@@ -435,11 +437,11 @@ impl Drop for Worker {
     }
 }
 
-fn run(rx: Receiver<Cmd>, tx: Sender<Cmd>, state: Arc<Mutex<DevState>>, ctx: egui::Context) {
+fn run(rx: Receiver<Cmd>, tx: Sender<Cmd>, state: Arc<Mutex<DevState>>, wake: Wake) {
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
     }
-    match Worker::new(tx, state.clone(), ctx) {
+    match Worker::new(tx, state.clone(), wake) {
         Ok(mut w) => {
             let mut last_slow = Instant::now();
             loop {

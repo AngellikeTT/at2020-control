@@ -51,6 +51,12 @@ impl Resampler {
     }
 }
 
+impl Default for Resampler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,0 +1,105 @@
+//! Generates the application icon (.ico) from the procedural drawing in src/icon.rs and
+//! embeds it, plus version information, into the Windows executable.
+
+include!("src/icon.rs");
+
+use std::io::Write;
+use std::path::PathBuf;
+
+fn ico_bytes(sizes: &[u32]) -> Vec<u8> {
+    let mut images: Vec<(u32, Vec<u8>)> = Vec::new();
+    for &s in sizes {
+        let rgba = rgba(s);
+        let n = s as usize;
+        // BMP DIB: BITMAPINFOHEADER + bottom-up BGRA XOR bitmap + 1bpp AND mask.
+        let mut dib = Vec::new();
+        dib.extend_from_slice(&40u32.to_le_bytes());
+        dib.extend_from_slice(&(s as i32).to_le_bytes());
+        dib.extend_from_slice(&((s * 2) as i32).to_le_bytes());
+        dib.extend_from_slice(&1u16.to_le_bytes());
+        dib.extend_from_slice(&32u16.to_le_bytes());
+        dib.extend_from_slice(&0u32.to_le_bytes());
+        dib.extend_from_slice(&((n * n * 4) as u32).to_le_bytes());
+        dib.extend_from_slice(&[0u8; 16]);
+        for row in (0..n).rev() {
+            for col in 0..n {
+                let o = (row * n + col) * 4;
+                dib.extend_from_slice(&[rgba[o + 2], rgba[o + 1], rgba[o], rgba[o + 3]]);
+            }
+        }
+        let mask_row = n.div_ceil(32) * 4;
+        dib.extend(std::iter::repeat_n(0u8, mask_row * n));
+        images.push((s, dib));
+    }
+    let mut out = Vec::new();
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&(images.len() as u16).to_le_bytes());
+    let mut offset = 6 + 16 * images.len();
+    for (s, d) in &images {
+        out.push(if *s >= 256 { 0 } else { *s as u8 });
+        out.push(if *s >= 256 { 0 } else { *s as u8 });
+        out.push(0);
+        out.push(0);
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&32u16.to_le_bytes());
+        out.extend_from_slice(&(d.len() as u32).to_le_bytes());
+        out.extend_from_slice(&(offset as u32).to_le_bytes());
+        offset += d.len();
+    }
+    for (_, d) in images {
+        out.extend_from_slice(&d);
+    }
+    out
+}
+
+fn main() {
+    println!("cargo:rerun-if-changed=src/icon.rs");
+    println!("cargo:rerun-if-changed=build.rs");
+    let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
+    let ico = out.join("app.ico");
+    std::fs::write(&ico, ico_bytes(&[16, 24, 32, 48, 64, 128, 256])).expect("write ico");
+    let version = std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.0.0".into());
+    let mut parts: Vec<u32> = version
+        .split('.')
+        .map(|p| p.parse().unwrap_or(0))
+        .collect();
+    parts.resize(4, 0);
+    let rc = out.join("app.rc");
+    let mut f = std::fs::File::create(&rc).expect("create rc");
+    let ico_path = ico.to_string_lossy().replace('\', "\\\\");
+    write!(
+        f,
+        "1 ICON \"{ico_path}\"\n\
+         1 VERSIONINFO\n\
+         FILEVERSION {a},{b},{c},{d}\n\
+         PRODUCTVERSION {a},{b},{c},{d}\n\
+         BEGIN\n\
+         BLOCK \"StringFileInfo\"\n\
+         BEGIN\n\
+         BLOCK \"040904b0\"\n\
+         BEGIN\n\
+         VALUE \"FileDescription\", \"AT2020USB-X Control Panel\"\n\
+         VALUE \"ProductName\", \"AT2020USB-X Control Panel\"\n\
+         VALUE \"FileVersion\", \"{version}\"\n\
+         VALUE \"ProductVersion\", \"{version}\"\n\
+         VALUE \"InternalName\", \"at2020-control\"\n\
+         VALUE \"OriginalFilename\", \"at2020-control.exe\"\n\
+         END\n\
+         END\n\
+         BLOCK \"VarFileInfo\"\n\
+         BEGIN\n\
+         VALUE \"Translation\", 0x409, 1200\n\
+         END\n\
+         END\n",
+        a = parts[0],
+        b = parts[1],
+        c = parts[2],
+        d = parts[3],
+    )
+    .expect("write rc");
+    drop(f);
+    embed_resource::compile(&rc, embed_resource::NONE)
+        .manifest_optional()
+        .expect("embed resources");
+}

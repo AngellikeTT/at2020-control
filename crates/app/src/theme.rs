@@ -406,7 +406,7 @@ impl Theme {
 
 /// Reads the Windows "apps use light theme" setting. Defaults to dark.
 pub fn windows_prefers_light() -> bool {
-    crate::winsys::apps_use_light_theme().unwrap_or(false)
+    device::winsys::apps_use_light_theme().unwrap_or(false)
 }
 
 /// Holds built-in and user themes and resolves the active one.

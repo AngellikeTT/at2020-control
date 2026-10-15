@@ -5,15 +5,15 @@
 //! guard, including on early return. Default devices and the enhancement flag are only
 //! read, then compared before/after.
 
-use crate::devctl::{Cmd, DevCtl, DevState};
-use crate::dsp::{comp_curve_db, db_to_lin, lin_to_db, Chain};
-use crate::engine::{pump_offline, Engine, EngineConfig};
-use crate::params::*;
-use crate::resample::Resampler;
-use crate::shared::Shared;
 use anyhow::{anyhow, bail, Context, Result};
+use core_dsp::dsp::{comp_curve_db, db_to_lin, lin_to_db, Chain};
+use core_dsp::params::*;
+use core_dsp::resample::Resampler;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
+use device::devctl::{Cmd, DevCtl, DevState};
+use device::engine::{pump_offline, Engine, EngineConfig};
+use device::shared::Shared;
 use std::fmt::Write as _;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::{Arc, Mutex};
@@ -1225,7 +1225,7 @@ fn sec_exclusive(r: &mut Report, d: &Devices) {
                 i.in_rate,
                 i.in_channels,
                 i.in_format,
-                i.in_buffer.map_or(0, |b| b),
+                i.in_buffer.unwrap_or(0),
                 if i.in_exclusive {
                     "exclusive"
                 } else {
@@ -1234,7 +1234,7 @@ fn sec_exclusive(r: &mut Report, d: &Devices) {
                 i.out_rate,
                 i.out_channels,
                 i.out_format,
-                i.out_buffer.map_or(0, |b| b),
+                i.out_buffer.unwrap_or(0),
                 if i.out_exclusive {
                     "exclusive"
                 } else {
@@ -1443,8 +1443,7 @@ fn sec_hotplug(r: &mut Report, dev: &DevCtl, d: &Devices) {
 pub fn run(opts: &Options) -> i32 {
     let started = Instant::now();
     let mut r = Report::default();
-    let ctx = eframe::egui::Context::default();
-    let dev = DevCtl::spawn(ctx);
+    let dev = DevCtl::spawn(Arc::new(|| {}));
 
     sec_dsp(&mut r);
     sec_pipeline(&mut r);

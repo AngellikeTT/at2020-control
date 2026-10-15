@@ -2,7 +2,6 @@
 //! magnitude spectra (dBFS) for the pre- and post-chain signals.
 
 use crate::ring::Ring;
-use crate::shared::Shared;
 use realfft::num_complex::Complex;
 use realfft::{RealFftPlanner, RealToComplex};
 use std::sync::Arc;
@@ -30,7 +29,7 @@ pub struct Analyzer {
 }
 
 impl Analyzer {
-    pub fn new(shared: &Shared) -> Self {
+    pub fn new(spec_in: Arc<Ring>, spec_out: Arc<Ring>) -> Self {
         let mut planner = RealFftPlanner::<f32>::new();
         let fft = planner.plan_fft_forward(FFT_N);
         let window: Vec<f32> = (0..FFT_N)
@@ -50,8 +49,8 @@ impl Analyzer {
             fft,
             window,
             norm: 2.0 / sum,
-            input: mk(&shared.spec_in),
-            output: mk(&shared.spec_out),
+            input: mk(&spec_in),
+            output: mk(&spec_out),
             scratch_in: vec![0.0; FFT_N],
             tmp: vec![0.0; 8192],
         }
@@ -137,19 +136,19 @@ pub fn bin_hz(i: usize) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::params::ChainParams;
 
     #[test]
     fn sine_peak_lands_in_the_right_bin_at_the_right_level() {
-        let shared = Shared::new(ChainParams::default());
-        let mut a = Analyzer::new(&shared);
+        let ring_in = Arc::new(Ring::new(1 << 14));
+        let ring_out = Arc::new(Ring::new(1 << 14));
+        let mut a = Analyzer::new(ring_in, ring_out.clone());
         let f = 3000.0f32;
         let amp = 0.25f32; // -12 dBFS
         let x: Vec<f32> = (0..FFT_N * 2)
             .map(|i| amp * (2.0 * std::f32::consts::PI * f * i as f32 / 48_000.0).sin())
             .collect();
-        shared.spec_out.push(&x[..FFT_N]);
-        shared.spec_out.push(&x[FFT_N..]);
+        ring_out.push(&x[..FFT_N]);
+        ring_out.push(&x[FFT_N..]);
         a.update(0.033);
         let db = a.output_db();
         let (peak_i, peak_v) =

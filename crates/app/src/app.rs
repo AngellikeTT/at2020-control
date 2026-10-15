@@ -1,16 +1,16 @@
 //! The egui application: device control, presets, processing-chain editor, meters.
 //! Tab bodies live in `tabs.rs`.
 
-use crate::devctl::{Cmd, DevCtl, DevState};
-use crate::engine::{query_caps, DeviceCaps, Engine, EngineConfig};
 use crate::integration::{Action, Integration};
-use crate::params::*;
-use crate::recorder::Recorder;
 use crate::settings::{self, Settings};
-use crate::shared::Shared;
-use crate::spectrum::Analyzer;
 use crate::theme::{Theme, ThemeStore};
 use crate::widgets::*;
+use core_dsp::params::*;
+use core_dsp::spectrum::Analyzer;
+use device::devctl::{Cmd, DevCtl, DevState};
+use device::engine::{query_caps, DeviceCaps, Engine, EngineConfig};
+use device::recorder::Recorder;
+use device::shared::Shared;
 use eframe::egui::{self, Color32, RichText, Vec2};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering::Relaxed;
@@ -145,11 +145,14 @@ impl App {
         let params = settings.params;
         let shared = Arc::new(Shared::new(params));
         shared.monitor_vol.store(settings.monitor_volume);
-        let devctl = DevCtl::spawn(cc.egui_ctx.clone());
+        let devctl = DevCtl::spawn({
+            let c = cc.egui_ctx.clone();
+            Arc::new(move || c.request_repaint())
+        });
         if let Some(id) = settings.input_id.clone() {
             devctl.send(Cmd::Select(id));
         }
-        settings.start_with_windows = crate::winsys::autostart_enabled();
+        settings.start_with_windows = device::winsys::autostart_enabled();
         let now = Instant::now();
         let shots = opts.screenshots.map(|dir| {
             let mut names = themes.names();
@@ -162,7 +165,7 @@ impl App {
                 pending: None,
             }
         });
-        let analyzer = Analyzer::new(&shared);
+        let analyzer = Analyzer::new(shared.spec_in.clone(), shared.spec_out.clone());
         let hotkey_edit = [
             settings.hotkey_mute.clone(),
             settings.hotkey_bypass.clone(),
@@ -451,7 +454,7 @@ impl App {
             use raw_window_handle::{HasWindowHandle, RawWindowHandle};
             if let Ok(h) = frame.window_handle() {
                 if let RawWindowHandle::Win32(w) = h.as_raw() {
-                    crate::winsys::set_dark_title_bar(w.hwnd.get(), self.theme.dark);
+                    device::winsys::set_dark_title_bar(w.hwnd.get(), self.theme.dark);
                     self.title_dark = Some(self.theme.dark);
                 }
             }
@@ -668,9 +671,9 @@ impl App {
         let name = format!("test-{}.wav", unix_stamp());
         let path = dir.join(name);
         let src = if self.rec_raw {
-            crate::shared::REC_RAW
+            device::shared::REC_RAW
         } else {
-            crate::shared::REC_PROCESSED
+            device::shared::REC_PROCESSED
         };
         match Recorder::start(self.shared.clone(), &path, src) {
             Ok(r) => {

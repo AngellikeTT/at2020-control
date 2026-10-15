@@ -1,9 +1,9 @@
-//! Offline command line: `--process in.wav out.wav --preset <name|file.toml>`.
+//! Offline (file) processing: runs a mono signal of any sample rate through the chain and
+//! reads/writes WAV files. Used by the command line mode and by tests.
 
 use crate::dsp::Chain;
 use crate::params::{ChainParams, FRAME, SAMPLE_RATE};
 use crate::resample::Resampler;
-use crate::settings;
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 
@@ -48,6 +48,7 @@ pub fn process_samples(mono: &[f32], rate: u32, p: &ChainParams) -> Vec<f32> {
     y
 }
 
+/// Reads a WAV (any channel count, 8-32 bit int or float) as mono f32 plus its rate.
 pub fn read_wav_mono(path: &Path) -> Result<(Vec<f32>, u32)> {
     let mut r =
         hound::WavReader::open(path).with_context(|| format!("opening {}", path.display()))?;
@@ -69,6 +70,7 @@ pub fn read_wav_mono(path: &Path) -> Result<(Vec<f32>, u32)> {
     Ok((mono, spec.sample_rate))
 }
 
+/// Writes mono samples as 16/24-bit PCM or 32-bit float.
 pub fn write_wav_mono(path: &Path, x: &[f32], rate: u32, bits: u16) -> Result<()> {
     let spec = if bits == 32 {
         hound::WavSpec {
@@ -102,58 +104,6 @@ pub fn write_wav_mono(path: &Path, x: &[f32], rate: u32, bits: u16) -> Result<()
         b => bail!("unsupported bit depth {b} (use 16, 24 or 32)"),
     }
     w.finalize()?;
-    Ok(())
-}
-
-const USAGE: &str = "usage: at2020-control --process <in.wav> <out.wav> [--preset <name|file.toml>] [--bits 16|24|32]\n       at2020-control --list-presets";
-
-/// Returns the process exit code.
-pub fn run(args: &[String]) -> i32 {
-    match run_inner(args) {
-        Ok(()) => 0,
-        Err(e) => {
-            eprintln!("error: {e:#}");
-            2
-        }
-    }
-}
-
-fn run_inner(args: &[String]) -> Result<()> {
-    if args.iter().any(|a| a == "--list-presets") {
-        for (n, _) in ChainParams::builtin() {
-            println!("{n}");
-        }
-        for n in settings::list_user_presets() {
-            println!("{n}");
-        }
-        return Ok(());
-    }
-    let pos = args.iter().position(|a| a == "--process").context(USAGE)?;
-    let (Some(inp), Some(out)) = (args.get(pos + 1), args.get(pos + 2)) else {
-        bail!("{USAGE}");
-    };
-    let opt = |k: &str| {
-        args.iter()
-            .position(|a| a == k)
-            .and_then(|i| args.get(i + 1))
-            .cloned()
-    };
-    let params = match opt("--preset") {
-        Some(n) => settings::resolve_preset(&n).map_err(anyhow::Error::msg)?,
-        None => ChainParams::voice(),
-    };
-    let bits: u16 = opt("--bits").and_then(|b| b.parse().ok()).unwrap_or(24);
-    let (mono, rate) = read_wav_mono(Path::new(inp))?;
-    let y = process_samples(&mono, rate, &params);
-    write_wav_mono(Path::new(out), &y, rate, bits)?;
-    println!(
-        "{} -> {}  ({:.1} s, {} Hz, {}-bit)",
-        inp,
-        out,
-        y.len() as f32 / rate as f32,
-        rate,
-        bits
-    );
     Ok(())
 }
 
