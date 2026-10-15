@@ -276,6 +276,7 @@ struct OutputProcessor {
     out_rate: f64,
     primed: bool,
     adj: f64,
+    fill_avg: f64,
     is_monitor: bool,
     shared: Arc<Shared>,
 }
@@ -295,15 +296,19 @@ impl OutputProcessor {
         if !self.primed {
             if fill >= TARGET_FILL {
                 self.primed = true;
+                self.fill_avg = fill as f64;
             } else {
                 data.fill(silence);
                 return;
             }
         }
         // Clock-drift compensation: nudge the resampling ratio toward the target fill.
-        let err = (fill as f64 - TARGET_FILL as f64) / SAMPLE_RATE as f64;
-        let want = (err * 0.5).clamp(-0.005, 0.005);
-        self.adj += (want - self.adj) * 0.05;
+        // Smooth the measured fill first: callbacks deliver bursts, and feeding that straight
+        // into the ratio would modulate pitch.
+        self.fill_avg += (fill as f64 - self.fill_avg) * 0.02;
+        let err = (self.fill_avg - TARGET_FILL as f64) / SAMPLE_RATE as f64;
+        let want = (err * 0.5).clamp(-0.002, 0.002);
+        self.adj += (want - self.adj) * 0.01;
         let step = (SAMPLE_RATE as f64 / self.out_rate) * (1.0 + self.adj);
 
         let vol = if self.is_monitor {
@@ -357,6 +362,7 @@ fn build_output(
         out_rate: rate as f64,
         primed: false,
         adj: 0.0,
+        fill_avg: TARGET_FILL as f64,
         is_monitor,
         shared: shared.clone(),
     };
@@ -392,4 +398,43 @@ where
         err,
         None,
     )?)
+}
+
+/// Offline harness for the self-test: runs mono samples at `in_rate` through the real
+/// input processor (resample, chain, ring) and output processor (drift-compensated
+/// resampler) without any audio device. Returns mono samples at `out_rate`.
+pub fn pump_offline(input: &[f32], in_rate: u32, out_rate: u32, params: &ChainParams) -> Vec<f32> {
+    let shared = Arc::new(Shared::new(*params));
+    let main = Arc::new(Ring::new(RING_CAP));
+    let mon = Arc::new(Ring::new(RING_CAP));
+    let mut inp = InputProcessor::new(in_rate, 1, main.clone(), mon, shared.clone());
+    let mut out = OutputProcessor {
+        ring: main,
+        rs: Resampler::new(),
+        ch: 1,
+        out_rate: out_rate as f64,
+        primed: false,
+        adj: 0.0,
+        fill_avg: TARGET_FILL as f64,
+        is_monitor: false,
+        shared,
+    };
+    let chunk_in = (in_rate as usize / 100).max(1);
+    let mut result = Vec::with_capacity(input.len() * out_rate as usize / in_rate as usize + 1024);
+    let mut owed = 0.0f64;
+    let mut buf = vec![0.0f32; 4096];
+    for c in input.chunks(chunk_in) {
+        inp.process(c);
+        owed += c.len() as f64 * out_rate as f64 / in_rate as f64;
+        let n = owed as usize;
+        owed -= n as f64;
+        let mut left = n;
+        while left > 0 {
+            let k = left.min(buf.len());
+            out.fill(&mut buf[..k]);
+            result.extend_from_slice(&buf[..k]);
+            left -= k;
+        }
+    }
+    result
 }
