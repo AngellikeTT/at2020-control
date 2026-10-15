@@ -58,6 +58,7 @@ impl Ring {
     }
 
     /// Consumer side: drop everything currently queued.
+    #[cfg(test)]
     pub fn discard_all(&self) {
         self.tail.store(self.head.load(Acquire), Release);
     }

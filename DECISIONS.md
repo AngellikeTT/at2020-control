@@ -8,3 +8,9 @@ Session constraints: no shell on the Windows PC; cloud container is Linux; stati
 4. No test was changed or weakened.
 5. Git: no git on the PC side; no commit was made in D:\Mic App - Claude.
 6. Phases 2-5 not started: they need a Windows toolchain/hardware, and writing thousands of lines blind on never-compiled code was judged worse than stopping.
+
+## Session 2 (Windows, real toolchain)
+7. **Installed Rust via rustup (per-user, ~/.cargo, stable 1.99.1 msvc)** after finding none on C:. User said "do all you need to do". Alternative: stop (original instruction); superseded by the user's later message. No drivers or system-wide software installed. git was already present; `git init` done.
+8. **Cargo.toml: added `windows` feature `implement` and direct dep `windows-core = "0.58"`.** Needed for `#[implement(IMMNotificationClient)]` (generates `_Impl` trait and references `::windows_core`). Same major version as pinned; no crate upgraded.
+9. **Clippy (real Windows run):** removed unused `EngineInfo::monitor`; `Ring::discard_all` made `#[cfg(test)]` (a test uses it; it will be re-exposed if xrun recovery needs it); blank `//!` line before doc paragraph in devctl.rs. No test changed.
+10. devctl.rs compiled first time after #8; the earlier PROPVARIANT fixes were correct.

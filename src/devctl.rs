@@ -6,6 +6,7 @@
 //!   * IAudioEndpointVolume           - the mic's Windows-level volume (scalar + dB) and mute
 //!   * IAudioMeterInformation         - Windows-side peak meter
 //!   * IPropertyStore                 - friendly name, "audio enhancements" (SysFx) flag
+//!
 //! The UI talks to it through a command channel and reads a shared `DevState` snapshot.
 
 use eframe::egui;

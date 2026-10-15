@@ -28,7 +28,6 @@ pub struct EngineInfo {
     pub in_channels: u16,
     pub out_rate: u32,
     pub out_channels: u16,
-    pub monitor: bool,
 }
 
 pub struct Engine {
@@ -107,7 +106,6 @@ impl Engine {
                 in_channels: in_ch,
                 out_rate,
                 out_channels: out_ch,
-                monitor: monitor.is_some(),
             },
             _monitor: monitor,
             shared,
