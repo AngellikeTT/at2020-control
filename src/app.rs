@@ -230,6 +230,7 @@ impl App {
         EngineConfig {
             sample_rate: self.settings.sample_rate,
             buffer_frames: self.settings.buffer_frames,
+            exclusive: self.settings.exclusive_mode,
         }
     }
 

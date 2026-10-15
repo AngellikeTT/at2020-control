@@ -27,6 +27,8 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use triple_buffer::Output;
 
+use crate::wasapi_excl::{self, ExclusiveStream, Fault};
+
 const RING_CAP: usize = 1 << 16; // ~1.36 s @ 48 kHz
 /// Target ring fill used for drift compensation / underrun protection (~30 ms).
 const TARGET_FILL: usize = 1440;
@@ -38,6 +40,8 @@ const SCRATCH: usize = 1 << 19;
 pub struct EngineConfig {
     pub sample_rate: Option<u32>,
     pub buffer_frames: Option<u32>,
+    /// Try WASAPI exclusive mode (falls back to shared mode per side, with a note).
+    pub exclusive: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -50,11 +54,30 @@ pub struct EngineInfo {
     pub out_channels: u16,
     pub out_format: String,
     pub out_buffer: Option<u32>,
+    pub in_exclusive: bool,
+    pub out_exclusive: bool,
+    /// Human-readable remarks, e.g. why exclusive mode fell back to shared.
+    pub notes: Vec<String>,
+}
+
+/// A running stream: cpal (shared mode) or our own exclusive-mode thread.
+pub enum Handle {
+    Cpal(Stream),
+    Excl(#[allow(dead_code)] ExclusiveStream),
+}
+
+impl Handle {
+    fn play(&self) -> Result<()> {
+        if let Handle::Cpal(s) = self {
+            s.play()?;
+        }
+        Ok(())
+    }
 }
 
 pub struct Engine {
-    _input: Stream,
-    _output: Stream,
+    _input: Handle,
+    _output: Handle,
     _monitor: Option<Stream>,
     pub info: EngineInfo,
     shared: Arc<Shared>,
@@ -208,9 +231,28 @@ impl Engine {
         let main_ring = Arc::new(Ring::new(RING_CAP));
         let mon_ring = Arc::new(Ring::new(RING_CAP));
 
-        let (output, out_info) =
-            build_output(&out_dev, main_ring.clone(), shared.clone(), false, cfg)
-                .context("opening output device")?;
+        let mut notes = Vec::new();
+        let exclusive_out = if cfg.exclusive {
+            match build_output_exclusive(output_name, main_ring.clone(), shared.clone(), cfg) {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    notes.push(format!(
+                        "Output: exclusive mode unavailable, using shared ({e:#})"
+                    ));
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let (output, out_info) = match exclusive_out {
+            Some(v) => v,
+            None => {
+                let (s, i) = build_output(&out_dev, main_ring.clone(), shared.clone(), false, cfg)
+                    .context("opening output device")?;
+                (Handle::Cpal(s), i)
+            }
+        };
         let monitor = match monitor_name {
             Some(n) => {
                 let d = find_device_in(&host, n, false)?;
@@ -221,8 +263,33 @@ impl Engine {
             None => None,
         };
         shared.monitor_active.store(monitor.is_some(), Relaxed);
-        let (input, in_info) = build_input(&in_dev, main_ring, mon_ring, shared.clone(), cfg)
-            .context("opening input device")?;
+        let exclusive_in = if cfg.exclusive {
+            match build_input_exclusive(
+                input_name,
+                main_ring.clone(),
+                mon_ring.clone(),
+                shared.clone(),
+                cfg,
+            ) {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    notes.push(format!(
+                        "Input: exclusive mode unavailable, using shared ({e:#})"
+                    ));
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let (input, in_info) = match exclusive_in {
+            Some(v) => v,
+            None => {
+                let (s, i) = build_input(&in_dev, main_ring, mon_ring, shared.clone(), cfg)
+                    .context("opening input device")?;
+                (Handle::Cpal(s), i)
+            }
+        };
 
         output.play().context("starting output stream")?;
         if let Some(m) = &monitor {
@@ -242,6 +309,9 @@ impl Engine {
                 out_channels: out_info.channels,
                 out_format: out_info.format,
                 out_buffer: out_info.buffer,
+                in_exclusive: in_info.exclusive,
+                out_exclusive: out_info.exclusive,
+                notes,
             },
             _monitor: monitor,
             shared,
@@ -263,6 +333,7 @@ struct StreamInfo {
     channels: u16,
     format: String,
     buffer: Option<u32>,
+    exclusive: bool,
 }
 
 // ------------------------------------------------------------------ mmcss --
@@ -286,6 +357,81 @@ fn promote_thread(done: &mut bool, shared: &Shared) {
     if ok {
         shared.mmcss_threads.fetch_add(1, Relaxed);
     }
+}
+
+// ------------------------------------------------------- exclusive mode --
+
+fn fault_cb(shared: &Arc<Shared>) -> Fault {
+    let sh = shared.clone();
+    Arc::new(move |m: String| sh.set_fault(m))
+}
+
+fn build_input_exclusive(
+    name: &str,
+    main: Arc<Ring>,
+    mon: Arc<Ring>,
+    shared: Arc<Shared>,
+    cfg: &EngineConfig,
+) -> Result<(Handle, StreamInfo)> {
+    let fault = fault_cb(&shared);
+    let (stream, neg) = wasapi_excl::open_capture(
+        name,
+        cfg.sample_rate,
+        move |n| {
+            let mut proc = InputProcessor::new(n.rate, n.channels as usize, main, mon, shared);
+            move |d: &[f32]| proc.process(d)
+        },
+        fault,
+    )?;
+    Ok((
+        Handle::Excl(stream),
+        StreamInfo {
+            rate: neg.rate,
+            channels: neg.channels,
+            format: neg.format,
+            buffer: Some(neg.buffer_frames),
+            exclusive: true,
+        },
+    ))
+}
+
+fn build_output_exclusive(
+    name: &str,
+    ring: Arc<Ring>,
+    shared: Arc<Shared>,
+    cfg: &EngineConfig,
+) -> Result<(Handle, StreamInfo)> {
+    let fault = fault_cb(&shared);
+    let (stream, neg) = wasapi_excl::open_render(
+        name,
+        cfg.sample_rate,
+        move |n| {
+            let mut proc = OutputProcessor {
+                ring,
+                rs: Resampler::new(),
+                ch: n.channels as usize,
+                out_rate: n.rate as f64,
+                primed: false,
+                adj: 0.0,
+                fill_avg: TARGET_FILL as f64,
+                is_monitor: false,
+                shared,
+                mmcss: true,
+            };
+            move |d: &mut [f32]| proc.fill(d)
+        },
+        fault,
+    )?;
+    Ok((
+        Handle::Excl(stream),
+        StreamInfo {
+            rate: neg.rate,
+            channels: neg.channels,
+            format: neg.format,
+            buffer: Some(neg.buffer_frames),
+            exclusive: true,
+        },
+    ))
 }
 
 // ------------------------------------------------------------------ input --
@@ -442,6 +588,7 @@ fn build_input(
             channels: ch,
             format: format!("{fmt:?}"),
             buffer: buf,
+            exclusive: false,
         },
     ))
 }
@@ -587,6 +734,7 @@ fn build_output(
             channels: ch,
             format: format!("{fmt:?}"),
             buffer: buf,
+            exclusive: false,
         },
     ))
 }

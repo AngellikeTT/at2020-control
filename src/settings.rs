@@ -20,6 +20,8 @@ pub struct Settings {
     pub sample_rate: Option<u32>,
     /// Requested device buffer size in frames (`None` = device default).
     pub buffer_frames: Option<u32>,
+    /// Use WASAPI exclusive mode where the devices accept it.
+    pub exclusive_mode: bool,
     pub minimize_to_tray: bool,
     pub start_minimized: bool,
     pub start_with_windows: bool,
@@ -46,6 +48,7 @@ impl Default for Settings {
             params: ChainParams::voice(),
             sample_rate: None,
             buffer_frames: None,
+            exclusive_mode: false,
             minimize_to_tray: true,
             start_minimized: false,
             start_with_windows: false,

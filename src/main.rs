@@ -23,6 +23,7 @@ mod shared;
 mod spectrum;
 mod tabs;
 mod theme;
+mod wasapi_excl;
 mod widgets;
 mod winsys;
 

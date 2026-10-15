@@ -685,6 +685,77 @@ fn sec_dsp(r: &mut Report) {
     p.output.mute = true;
     let m = rms_db(tail(&run_chain(&p, &tone(1000.0, -6.0, 1.0, FS)), 0.3));
     r.check("output mute silences", m < -100.0, format!("{m:.0} dBFS"));
+
+    // De-esser: sibilance band reduced, speech band untouched.
+    let mut p = flat;
+    p.deess.enabled = true;
+    p.deess.threshold_db = -30.0;
+    p.deess.ratio = 6.0;
+    p.deess.max_reduction_db = 12.0;
+    let hi = amp_db(
+        tail(&run_chain(&p, &tone(6500.0, -12.0, 1.5, FS)), 0.5),
+        FS,
+        6500.0,
+    ) + 12.0;
+    let mid = amp_db(
+        tail(&run_chain(&p, &tone(500.0, -12.0, 1.5, FS)), 0.5),
+        FS,
+        500.0,
+    ) + 12.0;
+    r.check(
+        "de-esser reduces 6.5 kHz",
+        hi < -5.0,
+        format!("{hi:+.1} dB"),
+    );
+    r.check(
+        "de-esser leaves 500 Hz alone",
+        mid.abs() < 0.5,
+        format!("{mid:+.2} dB"),
+    );
+
+    // VAD gate: stationary non-voice noise is shut out even though it is loud.
+    let mut p = flat;
+    p.vad_gate.enabled = true;
+    p.vad_gate.threshold = 0.5;
+    p.vad_gate.range_db = -40.0;
+    p.denoise.enabled = true;
+    p.denoise.strength = 0.0; // keep the noise itself; only the VAD decision is used
+    let n = noise(-25.0, 4.0, FS, 11);
+    let gated = rms_db(tail(&run_chain(&p, &n), 0.5));
+    let mut off = p;
+    off.vad_gate.enabled = false;
+    let open = rms_db(tail(&run_chain(&off, &n), 0.5));
+    r.check(
+        "VAD gate shuts on non-voice noise",
+        open - gated > 20.0,
+        format!("{open:.1} -> {gated:.1} dBFS ({:.1} dB)", open - gated),
+    );
+
+    // Smoothing: abrupt parameter changes must not produce clicks.
+    let x = tone(200.0, -8.0, 1.2, FS);
+    let mut c = Chain::new();
+    let mut pp = ChainParams::flat();
+    let mut y = Vec::new();
+    for (i, ch) in x.chunks(FRAME).enumerate() {
+        if i == 60 {
+            pp.output.gain_db = -30.0;
+            pp.eq.enabled = true;
+            pp.eq.bands[2].gain_db = 12.0;
+            pp.comp.enabled = true;
+        }
+        let mut b = ch.to_vec();
+        c.process(&mut b, &pp);
+        y.extend(b);
+    }
+    let max_step = y[FRAME * 5..]
+        .windows(2)
+        .fold(0.0f32, |a, w| a.max((w[1] - w[0]).abs()));
+    let clean = db_to_lin(-8.0) * 2.0 * std::f32::consts::PI * 200.0 / 48_000.0;
+    r.check(
+        "parameter changes are click-free",
+        max_step < clean * 1.3,
+        format!("max step {max_step:.4} vs clean sine {clean:.4}"),
+    );
 }
 
 fn sec_pipeline(r: &mut Report) {
@@ -1091,6 +1162,16 @@ fn sec_loopback(r: &mut Report, d: &Devices) {
     p.input.gain_db = 18.0;
     p.limiter.ceiling_db = -6.0;
     stages.push(("limiter", p));
+    let mut p = flat;
+    p.deess.enabled = true;
+    p.deess.freq_hz = 8000.0;
+    p.deess.threshold_db = -40.0;
+    p.deess.max_reduction_db = 12.0;
+    stages.push(("de-esser @8 kHz", p));
+    let mut p = flat;
+    p.vad_gate.enabled = true;
+    p.vad_gate.threshold = 0.3;
+    stages.push(("VAD gate", p));
     for (name, p) in stages {
         let sw = run_chain(&p, &base);
         let sw_levels: Vec<f32> = tones
@@ -1122,6 +1203,76 @@ fn sec_loopback(r: &mut Report, d: &Devices) {
             }
             Err(e) => r.check(&format!("stage via cable: {name}"), false, format!("{e:#}")),
         }
+    }
+}
+
+fn sec_exclusive(r: &mut Report, d: &Devices) {
+    r.h("WASAPI exclusive mode");
+    let (Some((_, mic)), Some(cin)) = (&d.mic, &d.cable_in) else {
+        r.warn("mic or virtual cable missing; skipped");
+        return;
+    };
+    let shared = Arc::new(Shared::new(ChainParams::voice()));
+    let cfg = EngineConfig {
+        exclusive: true,
+        ..EngineConfig::default()
+    };
+    match Engine::start(mic, cin, None, &cfg, shared.clone()) {
+        Ok(e) => {
+            let i = e.info.clone();
+            r.info(format!(
+                "input: {} Hz x{} {} {} frames ({}); output: {} Hz x{} {} {} frames ({})",
+                i.in_rate,
+                i.in_channels,
+                i.in_format,
+                i.in_buffer.map_or(0, |b| b),
+                if i.in_exclusive {
+                    "exclusive"
+                } else {
+                    "shared"
+                },
+                i.out_rate,
+                i.out_channels,
+                i.out_format,
+                i.out_buffer.map_or(0, |b| b),
+                if i.out_exclusive {
+                    "exclusive"
+                } else {
+                    "shared"
+                },
+            ));
+            for n in &i.notes {
+                r.info(format!("note: {n}"));
+            }
+            std::thread::sleep(Duration::from_secs(5));
+            let unders = shared.underruns.load(Relaxed);
+            let fault = shared.take_fault();
+            let out = shared.meters.out_peak.take();
+            let lat = e.latency_ms();
+            drop(e);
+            r.check(
+                "exclusive engine starts (or falls back)",
+                true,
+                "running 5 s",
+            );
+            r.check(
+                "no stream fault in exclusive mode",
+                fault.is_none(),
+                format!("{fault:?}"),
+            );
+            r.check("exclusive underruns <= 2", unders <= 2, format!("{unders}"));
+            r.check(
+                "signal flows",
+                out.is_finite(),
+                format!("out peak {:.1} dBFS", lin_to_db(out)),
+            );
+            r.info(format!("estimated latency {lat:.1} ms"));
+        }
+        Err(e) => r.check(
+            "exclusive engine starts (or falls back)",
+            false,
+            format!("{e:#}"),
+        ),
     }
 }
 
@@ -1313,6 +1464,7 @@ pub fn run(opts: &Options) -> i32 {
     sec_hotplug(&mut r, &dev, &devices);
     sec_live(&mut r, &devices, opts.live_secs);
     sec_loopback(&mut r, &devices);
+    sec_exclusive(&mut r, &devices);
     sec_soak(&mut r, &devices, opts.soak_secs);
 
     // Final verification that nothing was left changed.

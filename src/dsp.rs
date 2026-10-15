@@ -907,4 +907,161 @@ mod tests {
         let st = c.process(&mut f, &p);
         assert_eq!(st.out_peak, 0.0);
     }
+    // ---- de-esser, VAD gate and smoothing ----
+
+    fn peak_db(x: &[f32]) -> f32 {
+        lin_to_db(x.iter().fold(0.0f32, |a, v| a.max(v.abs())))
+    }
+
+    #[test]
+    fn deesser_cuts_sibilance_band_and_leaves_the_rest() {
+        let p = DeEssParams {
+            enabled: true,
+            freq_hz: 6500.0,
+            threshold_db: -30.0,
+            ratio: 6.0,
+            max_reduction_db: 12.0,
+        };
+        let mut hi = DeEsser::new();
+        let mut x = sine(48_000, 6500.0, db_to_lin(-12.0));
+        let before = peak_db(&x[40_000..]);
+        let mut gr = 0.0;
+        for ch in x.chunks_mut(FRAME) {
+            gr = hi.process(ch, &p);
+        }
+        let after = peak_db(&x[40_000..]);
+        assert!(gr > 6.0, "gr {gr}");
+        assert!(before - after > 5.0, "cut {:.1} dB", before - after);
+
+        let mut lo = DeEsser::new();
+        let mut v = sine(48_000, 500.0, db_to_lin(-12.0));
+        let b = peak_db(&v[40_000..]);
+        for ch in v.chunks_mut(FRAME) {
+            lo.process(ch, &p);
+        }
+        assert!((b - peak_db(&v[40_000..])).abs() < 0.5, "500 Hz must pass");
+    }
+
+    #[test]
+    fn deesser_is_transparent_below_threshold() {
+        let p = DeEssParams::default();
+        let mut d = DeEsser::new();
+        let mut x = sine(24_000, 6500.0, db_to_lin(-60.0));
+        let b = peak_db(&x[12_000..]);
+        for ch in x.chunks_mut(FRAME) {
+            assert_eq!(d.process(ch, &p), 0.0);
+        }
+        assert!((b - peak_db(&x[12_000..])).abs() < 0.2);
+    }
+
+    #[test]
+    fn vad_gate_follows_probability_with_hold() {
+        let p = VadGateParams {
+            enabled: true,
+            threshold: 0.5,
+            hold_ms: 100.0,
+            release_ms: 50.0,
+            range_db: -40.0,
+        };
+        let mut g = VadGate::new();
+        let mut buf = [0.5f32; FRAME];
+        assert!(g.process(&mut buf, 0.9, &p));
+        // 5 quiet blocks (50 ms) are inside the 100 ms hold: still open.
+        for _ in 0..5 {
+            let mut b = [0.5f32; FRAME];
+            assert!(g.process(&mut b, 0.1, &p));
+        }
+        // After the hold expires it closes and attenuates by about the range.
+        let mut last = [0.0f32; FRAME];
+        let mut open = true;
+        for _ in 0..40 {
+            last = [0.5f32; FRAME];
+            open = g.process(&mut last, 0.1, &p);
+        }
+        assert!(!open);
+        assert!(lin_to_db(last[FRAME - 1] / 0.5) < -30.0);
+        // Voice returns: opens again.
+        let mut b = [0.5f32; FRAME];
+        assert!(g.process(&mut b, 0.8, &p));
+    }
+
+    /// Largest sample-to-sample step in a signal.
+    fn max_step(x: &[f32]) -> f32 {
+        x.windows(2).fold(0.0f32, |a, w| a.max((w[1] - w[0]).abs()))
+    }
+
+    #[test]
+    fn output_gain_change_is_click_free() {
+        let x = sine(FRAME * 60, 200.0, 0.4);
+        let mut p = ChainParams::flat();
+        let mut c = Chain::new();
+        let mut y = Vec::new();
+        for (i, ch) in x.chunks(FRAME).enumerate() {
+            if i == 30 {
+                p.output.gain_db = -30.0; // abrupt UI change
+            }
+            let mut b = ch.to_vec();
+            c.process(&mut b, &p);
+            y.extend(b);
+        }
+        // A 200 Hz sine at 0.4 changes by at most 0.4*2*pi*200/48000 = 0.0105 per sample.
+        let step = max_step(&y[FRAME * 5..]);
+        assert!(step < 0.0125, "step {step}");
+        assert!(peak_db(&y[FRAME * 50..]) < -35.0, "gain must settle");
+    }
+
+    #[test]
+    fn toggling_stages_mid_stream_does_not_click() {
+        let x = sine(FRAME * 80, 300.0, 0.3);
+        let mut c = Chain::new();
+        let mut p = ChainParams::voice();
+        let mut y = Vec::new();
+        for (i, ch) in x.chunks(FRAME).enumerate() {
+            match i {
+                20 => p.eq.enabled = false,
+                30 => p.comp.enabled = false,
+                40 => p.limiter.enabled = false,
+                50 => p.deess.enabled = false,
+                60 => p.bypass = true,
+                70 => p.bypass = false,
+                _ => {}
+            }
+            let mut b = ch.to_vec();
+            c.process(&mut b, &p);
+            y.extend(b);
+        }
+        // Skip the start-up; no step may exceed ~2x a clean 300 Hz sine's maximum step.
+        let clean = 0.3 * 2.0 * std::f32::consts::PI * 300.0 / 48_000.0;
+        let step = max_step(&y[FRAME * 10..]);
+        assert!(step < clean * 2.0, "step {step} vs clean {clean}");
+    }
+
+    #[test]
+    fn eq_gain_sweep_is_click_free() {
+        let x = sine(FRAME * 60, 1000.0, 0.2);
+        let mut c = Chain::new();
+        let mut p = ChainParams::flat();
+        p.eq.enabled = true;
+        let mut y = Vec::new();
+        for (i, ch) in x.chunks(FRAME).enumerate() {
+            p.eq.bands[2].gain_db = if i < 20 { 0.0 } else { 12.0 };
+            let mut b = ch.to_vec();
+            c.process(&mut b, &p);
+            y.extend(b);
+        }
+        let clean = 0.2 * 4.0 * 2.0 * std::f32::consts::PI * 1000.0 / 48_000.0; // up to +12 dB
+        assert!(max_step(&y[FRAME * 5..]) < clean * 1.2);
+    }
+
+    #[test]
+    fn effective_params_neutralise_disabled_stages() {
+        let mut p = ChainParams::voice();
+        p.comp.enabled = false;
+        p.deess.enabled = false;
+        p.eq.enabled = false;
+        let e = effective_params(&p);
+        assert_eq!(e.comp.ratio, 1.0);
+        assert_eq!(e.deess.max_reduction_db, 0.0);
+        assert!(e.eq.bands.iter().all(|b| b.gain_db == 0.0));
+    }
 }

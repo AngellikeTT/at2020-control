@@ -502,16 +502,21 @@ impl App {
                 ui.end_row();
 
                 ui.label("Exclusive mode");
-                ui.add_enabled(
-                    false,
-                    egui::Checkbox::new(&mut false, "Use WASAPI exclusive mode"),
-                );
+                if ui
+                    .checkbox(
+                        &mut self.settings.exclusive_mode,
+                        "Use WASAPI exclusive mode",
+                    )
+                    .changed()
+                {
+                    self.mark_dirty();
+                }
                 ui.end_row();
             });
         ui.label(weak(
             ui,
-            "Exclusive mode is not offered: this build shares the device through WASAPI shared mode so \
-             the microphone keeps working in other apps. See DECISIONS.md.",
+            "Exclusive mode talks to the devices directly for the lowest latency, but other apps \
+             then cannot use the same device. If a device refuses, that side falls back to shared mode.",
         ));
 
         ui.add_space(10.0);
@@ -536,6 +541,22 @@ impl App {
                     i.out_buffer
                         .map_or("device default".into(), |b| format!("{b} frames"))
                 ));
+                ui.label(format!(
+                    "Mode  : input {}, output {}",
+                    if i.in_exclusive {
+                        "exclusive"
+                    } else {
+                        "shared"
+                    },
+                    if i.out_exclusive {
+                        "exclusive"
+                    } else {
+                        "shared"
+                    }
+                ));
+                for n in &i.notes {
+                    ui.colored_label(th.warn(), n);
+                }
                 let fill = self.shared.out_fill.load(Relaxed);
                 ui.label(format!(
                     "Latency ≈ {:.1} ms  (chain {:.1} ms + queue {:.1} ms{})",
