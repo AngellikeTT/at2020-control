@@ -27,6 +27,7 @@ use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Arc;
 use triple_buffer::Output;
 
+use crate::guard::GuardedCallback;
 use crate::wasapi_excl::{self, ExclusiveStream, Fault};
 
 const RING_CAP: usize = 1 << 16; // ~1.36 s @ 48 kHz
@@ -589,11 +590,12 @@ fn build_input(
     let proc = InputProcessor::new(rate, ch as usize, main, mon, shared.clone());
     let es = shared.clone();
     let err = move |e: cpal::StreamError| es.set_fault(format!("Input stream error: {e}"));
+    let fault = fault_cb(&shared);
     let stream = match fmt {
-        SampleFormat::F32 => build_in::<f32>(dev, &sc, proc, err)?,
-        SampleFormat::I16 => build_in::<i16>(dev, &sc, proc, err)?,
-        SampleFormat::I32 => build_in::<i32>(dev, &sc, proc, err)?,
-        SampleFormat::U16 => build_in::<u16>(dev, &sc, proc, err)?,
+        SampleFormat::F32 => build_in::<f32>(dev, &sc, proc, err, fault)?,
+        SampleFormat::I16 => build_in::<i16>(dev, &sc, proc, err, fault)?,
+        SampleFormat::I32 => build_in::<i32>(dev, &sc, proc, err, fault)?,
+        SampleFormat::U16 => build_in::<u16>(dev, &sc, proc, err, fault)?,
         f => bail!("unsupported input sample format {f:?}"),
     };
     Ok((
@@ -613,14 +615,18 @@ fn build_in<T>(
     cfg: &StreamConfig,
     mut proc: InputProcessor,
     err: impl FnMut(cpal::StreamError) + Send + 'static,
+    fault: Fault,
 ) -> Result<Stream>
 where
     T: SizedSample,
     f32: FromSample<T>,
 {
+    // A panic in the chain must not unwind into cpal's WASAPI thread (which would end
+    // the stream without any error callback); it is reported so the engine restarts.
+    let mut g = GuardedCallback::new(move |d: &[T]| proc.process(d), fault);
     Ok(dev.build_input_stream(
         cfg,
-        move |d: &[T], _: &cpal::InputCallbackInfo| proc.process(d),
+        move |d: &[T], _: &cpal::InputCallbackInfo| g.call_ref(d),
         err,
         None,
     )?)
@@ -735,11 +741,12 @@ fn build_output(
             if is_monitor { "Monitor" } else { "Output" }
         ))
     };
+    let fault = fault_cb(&shared);
     let stream = match fmt {
-        SampleFormat::F32 => build_out::<f32>(dev, &sc, proc, err)?,
-        SampleFormat::I16 => build_out::<i16>(dev, &sc, proc, err)?,
-        SampleFormat::I32 => build_out::<i32>(dev, &sc, proc, err)?,
-        SampleFormat::U16 => build_out::<u16>(dev, &sc, proc, err)?,
+        SampleFormat::F32 => build_out::<f32>(dev, &sc, proc, err, fault)?,
+        SampleFormat::I16 => build_out::<i16>(dev, &sc, proc, err, fault)?,
+        SampleFormat::I32 => build_out::<i32>(dev, &sc, proc, err, fault)?,
+        SampleFormat::U16 => build_out::<u16>(dev, &sc, proc, err, fault)?,
         f => bail!("unsupported output sample format {f:?}"),
     };
     Ok((
@@ -759,13 +766,16 @@ fn build_out<T>(
     cfg: &StreamConfig,
     mut proc: OutputProcessor,
     err: impl FnMut(cpal::StreamError) + Send + 'static,
+    fault: Fault,
 ) -> Result<Stream>
 where
-    T: SizedSample + FromSample<f32>,
+    T: SizedSample + FromSample<f32> + Send + 'static,
 {
+    let silence = T::from_sample(0.0f32);
+    let mut g = GuardedCallback::new(move |d: &mut [T]| proc.fill(d), fault);
     Ok(dev.build_output_stream(
         cfg,
-        move |d: &mut [T], _: &cpal::OutputCallbackInfo| proc.fill(d),
+        move |d: &mut [T], _: &cpal::OutputCallbackInfo| g.call(d, silence),
         err,
         None,
     )?)

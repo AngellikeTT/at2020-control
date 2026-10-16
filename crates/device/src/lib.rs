@@ -6,6 +6,7 @@
 
 pub mod devctl;
 pub mod engine;
+pub mod guard;
 pub mod recorder;
 pub mod restore;
 pub mod sessions;

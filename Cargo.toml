@@ -51,4 +51,6 @@ version = "0.58"
 opt-level = 3
 lto = "thin"
 codegen-units = 1
-panic = "abort"
+# Unwind (not abort) so every Drop guard runs on a panic: exclusive streams are stopped
+# and released, COM is uninitialised, and journaled device state is restored.
+panic = "unwind"

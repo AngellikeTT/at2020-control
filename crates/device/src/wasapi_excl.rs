@@ -134,15 +134,15 @@ where
     let join = std::thread::Builder::new()
         .name("wasapi-excl-capture".into())
         .spawn(move || {
-            // SAFETY: all COM use is confined to this thread, between Co(Un)Initialize.
+            // SAFETY: all COM use is confined to this thread; `ComScope` undoes the
+            // initialisation after every COM object (declared later) has been released.
             unsafe {
-                let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+                let _com = ComScope::enter();
                 promote();
                 if let Err(e) = capture_main(&name, want_rate, make, &st, &tx, &fault) {
                     let _ = tx.send(Err(format!("{e:#}")));
                     fault(format!("Exclusive capture stopped: {e:#}"));
                 }
-                CoUninitialize();
             }
         })?;
     finish_open(stop, join, rx)
@@ -165,13 +165,12 @@ where
         .spawn(move || {
             // SAFETY: as above.
             unsafe {
-                let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+                let _com = ComScope::enter();
                 promote();
                 if let Err(e) = render_main(&name, want_rate, make, &st, &tx, &fault) {
                     let _ = tx.send(Err(format!("{e:#}")));
                     fault(format!("Exclusive render stopped: {e:#}"));
                 }
-                CoUninitialize();
             }
         })?;
     finish_open(stop, join, rx)
@@ -199,6 +198,41 @@ fn finish_open(
             stop.store(true, Relaxed);
             let _ = join.join();
             Err(anyhow!("timed out opening the exclusive stream"))
+        }
+    }
+}
+
+/// COM initialisation for the stream thread, undone on drop (also while unwinding).
+struct ComScope;
+
+impl ComScope {
+    unsafe fn enter() -> Self {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        ComScope
+    }
+}
+
+impl Drop for ComScope {
+    fn drop(&mut self) {
+        // SAFETY: paired with CoInitializeEx in `enter` on this same thread.
+        unsafe { CoUninitialize() }
+    }
+}
+
+/// A Win32 event handle, closed on drop.
+struct Event(HANDLE);
+
+impl Event {
+    unsafe fn new() -> Result<Self> {
+        Ok(Event(CreateEventW(None, false, false, None)?))
+    }
+}
+
+impl Drop for Event {
+    fn drop(&mut self) {
+        // SAFETY: the handle came from CreateEventW and is closed exactly once.
+        unsafe {
+            let _ = CloseHandle(self.0);
         }
     }
 }
@@ -441,18 +475,28 @@ where
         buffer_frames: o.frames,
     };
     let mut cb = make(&neg);
-    let ev: HANDLE = CreateEventW(None, false, false, None)?;
-    o.client.SetEventHandle(ev)?;
+    let ev = Event::new()?;
+    o.client.SetEventHandle(ev.0)?;
     let cap: IAudioCaptureClient = o.client.GetService()?;
     o.client.Start()?;
     let _ = tx.send(Ok(neg));
 
     let ch = o.channels as usize;
     let mut scratch = vec![0.0f32; (o.frames as usize * ch).max(1) * 4];
-    let result: Result<()> = (|| {
-        while !stop.load(Relaxed) {
-            if WaitForSingleObject(ev, 250) != WAIT_OBJECT_0 {
-                continue;
+    // Stop() runs exactly once whatever ends the loop (stop request, device error, a
+    // panic in the processing callback); the client, the capture service and the event
+    // are then released by their destructors, in reverse order of creation.
+    let client = &o.client;
+    crate::guard::supervise_stream(
+        || {
+            let _ = client.Stop();
+        },
+        || {
+            if stop.load(Relaxed) {
+                return Ok(false);
+            }
+            if WaitForSingleObject(ev.0, 250) != WAIT_OBJECT_0 {
+                return Ok(true);
             }
             loop {
                 let n = cap.GetNextPacketSize()?;
@@ -475,17 +519,17 @@ where
                     );
                     bytes_to_f32(o.enc, bytes, &mut scratch[..samples]);
                 }
+                // Release the packet even if the callback panics, so the client is
+                // left in a consistent state for Stop().
+                let _release = crate::guard::OnDrop::new(|| {
+                    let _ = cap.ReleaseBuffer(frames);
+                });
                 cb(&scratch[..samples]);
-                cap.ReleaseBuffer(frames)?;
             }
-        }
-        Ok(())
-    })();
-    let _ = o.client.Stop();
-    let _ = CloseHandle(ev);
-    if let Err(e) = &result {
-        fault(format!("Exclusive capture error: {e}"));
-    }
+            Ok(true)
+        },
+        &|m| fault(format!("Exclusive capture error: {m}")),
+    );
     Ok(())
 }
 
@@ -510,8 +554,8 @@ where
         buffer_frames: o.frames,
     };
     let mut cb = make(&neg);
-    let ev: HANDLE = CreateEventW(None, false, false, None)?;
-    o.client.SetEventHandle(ev)?;
+    let ev = Event::new()?;
+    o.client.SetEventHandle(ev.0)?;
     let rend: IAudioRenderClient = o.client.GetService()?;
     // Start with a buffer of silence so the first event has something valid to play.
     rend.GetBuffer(o.frames)?;
@@ -522,24 +566,29 @@ where
     let ch = o.channels as usize;
     let bytes_per = o.enc.container_bits() as usize / 8;
     let mut scratch = vec![0.0f32; o.frames as usize * ch];
-    let result: Result<()> = (|| {
-        while !stop.load(Relaxed) {
-            if WaitForSingleObject(ev, 250) != WAIT_OBJECT_0 {
-                continue;
+    let client = &o.client;
+    crate::guard::supervise_stream(
+        || {
+            let _ = client.Stop();
+        },
+        || {
+            if stop.load(Relaxed) {
+                return Ok(false);
             }
-            let p = rend.GetBuffer(o.frames)?;
+            if WaitForSingleObject(ev.0, 250) != WAIT_OBJECT_0 {
+                return Ok(true);
+            }
+            // Fill first, then hand the device a complete buffer: a panic in the
+            // callback leaves no device buffer half written or unreleased.
             cb(&mut scratch);
+            let p = rend.GetBuffer(o.frames)?;
             let bytes = std::slice::from_raw_parts_mut(p, scratch.len() * bytes_per);
             f32_to_bytes(o.enc, &scratch, bytes);
             rend.ReleaseBuffer(o.frames, 0)?;
-        }
-        Ok(())
-    })();
-    let _ = o.client.Stop();
-    let _ = CloseHandle(ev);
-    if let Err(e) = &result {
-        fault(format!("Exclusive render error: {e}"));
-    }
+            Ok(true)
+        },
+        &|m| fault(format!("Exclusive render error: {m}")),
+    );
     Ok(())
 }
 

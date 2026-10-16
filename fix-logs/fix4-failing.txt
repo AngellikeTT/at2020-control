@@ -1,0 +1,56 @@
+﻿cargo :    Compiling device v0.2.0 (D:\Mic App - Claude\crates\device)
+At line:1 char:379
++ ... ;$env:PATH"; cargo test --release --workspace -- guard:: 2>&1 | Tee-O ...
++                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (   Compiling de...\crates\device):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+   Compiling at2020-control v0.2.0 (D:\Mic App - Claude\crates\app)
+    Finished `release` profile [optimized] target(s) in 10.54s
+     Running unittests src\main.rs (target\release\deps\at2020_control-8f5667f50866f8e7.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\release\deps\core_dsp-153558b3c0cb40cd.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 36 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\release\deps\device-5c3a58d8b37c0344.exe)
+
+running 4 tests
+test guard::tests::an_erroring_stream_is_stopped_and_reported ... ok
+test guard::tests::a_normal_stop_reports_nothing ... ok
+test guard::tests::a_panicking_stream_body_is_stopped_and_reported ... FAILED
+test guard::tests::a_panicking_callback_is_contained_and_silenced ... FAILED
+
+failures:
+
+---- guard::tests::a_panicking_stream_body_is_stopped_and_reported stdout ----
+
+thread 'guard::tests::a_panicking_stream_body_is_stopped_and_reported' (3424) panicked at crates\device\src\guard.rs:69:25:
+bug in the processing chain
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'guard::tests::a_panicking_stream_body_is_stopped_and_reported' (3424) panicked at crates\device\src\guard.rs:76:9:
+the panic must not escape the stream thread
+
+---- guard::tests::a_panicking_callback_is_contained_and_silenced stdout ----
+
+thread 'guard::tests::a_panicking_callback_is_contained_and_silenced' (20976) panicked at crates\device\src\guard.rs:122:21:
+index out of bounds
+
+thread 'guard::tests::a_panicking_callback_is_contained_and_silenced' (20976) panicked at crates\device\src\guard.rs:131:13:
+the panic must not unwind into the audio driver thread
+
+
+failures:
+    guard::tests::a_panicking_callback_is_contained_and_silenced
+    guard::tests::a_panicking_stream_body_is_stopped_and_reported
+
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p device --lib`
