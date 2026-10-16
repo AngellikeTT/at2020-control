@@ -102,7 +102,20 @@ Windows meter peak during capture: 1.000000
 RESULT: SIGNAL (nonzero samples)
 ```
 
-After everything (final build): see section 9.
+After everything (final build, `probe-logs\99-after-final-build.txt`):
+
+```
+chosen: Microphone (AT2020USB-X)
+endpoint volume: scalar 1.000, 30.00 dB (range -13.0..30.0 step 0.375), mute false
+Disable_SysFx: Some(0)
+shared mix format: 48000 Hz, 2 ch, 32 bit float
+captured 5.0 s: 480960 samples, 501 packets, 0 with AUDCLNT_BUFFERFLAGS_SILENT, 1 discontinuities
+peak 0.764968 (-2.3 dBFS), RMS 0.065020 (-23.7 dBFS), exact zeros 0/480960 (0.0 %)
+Windows meter peak during capture: 0.833084
+RESULT: SIGNAL (nonzero samples)
+```
+
+Same settings as before; signal throughout. All intermediate probes are in `probe-logs\`.
 
 ## 6. Root cause
 
@@ -231,7 +244,21 @@ cause, without retries or added sleeps:
 
 ## 9. Final reports
 
-(filled in below)
+**Live noise suppression:** `LIVE_NOISE_REPORT.md`, 30 s of real microphone audio, 10/10 PASS.
+
+| | |
+|---|---|
+| mic signal | RMS -15.3 dBFS, peak +1.1 dBFS (live, not digital silence) |
+| frames | 3000: 1544 noise-only (VAD < 0.1), 753 speech (VAD > 0.9) |
+| room noise, Voice preset | -32.0 dBFS in -> -41.1 dBFS out = **9.1 dB reduction** (criterion >= 6 dB) |
+| speech | -10.5 dBFS in -> -20.0 dBFS out (-9.5 dB, criterion -15..+10 dB) |
+| system state | volume/mute/enhancements/defaults unchanged |
+
+The peak of +1.1 dBFS means loud speech already clips with the endpoint at its maximum
+(+30 dB). Lowering the Windows mic level to about 75 % (+10.6 dB) would leave headroom.
+That is a suggestion only; I did not change it.
+
+**Full self-test:** `SELFTEST_REPORT.md`, with the 60-minute soak. Results below.
 
 ## 10. Rolling back
 
