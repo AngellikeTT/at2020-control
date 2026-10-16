@@ -7,6 +7,7 @@
 pub mod devctl;
 pub mod engine;
 pub mod recorder;
+pub mod sessions;
 pub mod shared;
 pub mod wasapi_excl;
 pub mod winsys;

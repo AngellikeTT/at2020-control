@@ -232,6 +232,21 @@ impl Engine {
         let mon_ring = Arc::new(Ring::new(RING_CAP));
 
         let mut notes = Vec::new();
+        if cfg.exclusive {
+            // Exclusive mode pre-empts other apps' shared streams on the same endpoint
+            // (Windows default "give exclusive mode applications priority"); say who.
+            let me = std::process::id();
+            for (name, capture) in [(input_name, true), (output_name, false)] {
+                let s = crate::sessions::endpoint_sessions(name, capture).unwrap_or_default();
+                let p = crate::sessions::preempted_by_exclusive(&s, me);
+                if !p.is_empty() {
+                    notes.push(format!(
+                        "Exclusive mode on \"{name}\" stops the audio of {} until they restart their stream",
+                        crate::sessions::describe(&p)
+                    ));
+                }
+            }
+        }
         let exclusive_out = if cfg.exclusive {
             match build_output_exclusive(output_name, main_ring.clone(), shared.clone(), cfg) {
                 Ok(v) => Some(v),

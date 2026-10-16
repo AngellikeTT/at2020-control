@@ -25,6 +25,8 @@ pub struct Options {
     pub live_secs: u64,
     pub soak_secs: u64,
     pub out_path: String,
+    /// Run the exclusive-mode section even if it pre-empts other apps' streams.
+    pub allow_preempt: bool,
 }
 
 impl Options {
@@ -45,6 +47,7 @@ impl Options {
                 .unwrap_or(if quick { 8 } else { 30 }),
             soak_secs: (soak_min * 60.0) as u64,
             out_path: get("--out").unwrap_or_else(|| "SELFTEST_REPORT.md".into()),
+            allow_preempt: args.iter().any(|a| a == "--allow-preempt"),
         }
     }
 }
@@ -127,6 +130,27 @@ fn exclusive_signal_check(peak: f32) -> (bool, String) {
         d.push_str(" (exact digital silence from the device: hardware/touch mute?)");
     }
     (ok, d)
+}
+
+/// Whether the exclusive-mode section may run, given the other apps' running streams
+/// on each endpoint it would open. `Err` carries the reason to skip.
+fn exclusive_plan(
+    preempted: &[(String, Vec<device::sessions::SessionInfo>)],
+    allow: bool,
+) -> std::result::Result<(), String> {
+    let busy: Vec<String> = preempted
+        .iter()
+        .filter(|(_, s)| !s.is_empty())
+        .map(|(ep, s)| format!("{} on `{ep}`", device::sessions::describe(s)))
+        .collect();
+    if busy.is_empty() || allow {
+        return Ok(());
+    }
+    Err(format!(
+        "skipped: exclusive mode would pre-empt the running stream(s) of {} (they would \
+         stay silent until restarted); close them or pass --allow-preempt",
+        busy.join("; ")
+    ))
 }
 
 // --------------------------------------------------------------- signals --
@@ -1232,12 +1256,33 @@ fn sec_loopback(r: &mut Report, d: &Devices) {
     }
 }
 
-fn sec_exclusive(r: &mut Report, d: &Devices) {
+fn sec_exclusive(r: &mut Report, d: &Devices, allow_preempt: bool) {
     r.h("WASAPI exclusive mode");
     let (Some((_, mic)), Some(cin)) = (&d.mic, &d.cable_in) else {
         r.warn("mic or virtual cable missing; skipped");
         return;
     };
+    let me = std::process::id();
+    let others = |name: &str, capture: bool| {
+        let s = device::sessions::endpoint_sessions(name, capture).unwrap_or_default();
+        (
+            name.to_string(),
+            device::sessions::preempted_by_exclusive(&s, me),
+        )
+    };
+    let preempted = [others(mic, true), others(cin, false)];
+    if let Err(why) = exclusive_plan(&preempted, allow_preempt) {
+        r.warn(why);
+        return;
+    }
+    for (ep, s) in &preempted {
+        if !s.is_empty() {
+            r.warn(format!(
+                "--allow-preempt: the stream(s) of {} on `{ep}` will be invalidated and must be restarted by their owner",
+                device::sessions::describe(s)
+            ));
+        }
+    }
     let shared = Arc::new(Shared::new(ChainParams::voice()));
     let cfg = EngineConfig {
         exclusive: true,
@@ -1491,7 +1536,7 @@ pub fn run(opts: &Options) -> i32 {
     sec_hotplug(&mut r, &dev, &devices);
     sec_live(&mut r, &devices, opts.live_secs);
     sec_loopback(&mut r, &devices);
-    sec_exclusive(&mut r, &devices);
+    sec_exclusive(&mut r, &devices, opts.allow_preempt);
     sec_soak(&mut r, &devices, opts.soak_secs);
 
     // Final verification that nothing was left changed.
@@ -1603,6 +1648,33 @@ mod tests {
     fn room_noise_passes_the_mic_check() {
         let (ok, detail) = mic_signal_check(&noise(-55.0, 1.0, FS, 7));
         assert!(ok, "{detail}");
+    }
+
+    fn vm() -> device::sessions::SessionInfo {
+        device::sessions::SessionInfo {
+            pid: 30236,
+            active: true,
+            exe: "voicemeeter_x64.exe".into(),
+        }
+    }
+
+    #[test]
+    fn exclusive_section_skips_when_it_would_preempt_another_app() {
+        let busy = vec![("Microphone (AT2020USB-X)".to_string(), vec![vm()])];
+        let plan = exclusive_plan(&busy, false);
+        let why = plan.expect_err("must not pre-empt Voicemeeter's running stream");
+        assert!(
+            why.contains("voicemeeter_x64.exe") && why.contains("AT2020"),
+            "{why}"
+        );
+    }
+
+    #[test]
+    fn exclusive_section_runs_when_alone_or_allowed() {
+        let idle = vec![("Microphone (AT2020USB-X)".to_string(), vec![])];
+        assert!(exclusive_plan(&idle, false).is_ok());
+        let busy = vec![("CABLE Input".to_string(), vec![vm()])];
+        assert!(exclusive_plan(&busy, true).is_ok());
     }
 
     #[test]

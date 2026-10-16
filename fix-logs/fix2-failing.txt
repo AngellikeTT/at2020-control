@@ -1,0 +1,42 @@
+﻿cargo :    Compiling device v0.2.0 (D:\Mic App - Claude\crates\device)
+At line:1 char:379
++ ... $env:PATH"; cargo test --release --workspace -- exclusive_section ses ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (   Compiling de...\crates\device):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+   Compiling at2020-control v0.2.0 (D:\Mic App - Claude\crates\app)
+warning: field `allow_preempt` is never read
+  --> crates\app\src\selftest.rs:29:9
+   |
+24 | pub struct Options {
+   |            ------- field in this struct
+...
+29 |     pub allow_preempt: bool,
+   |         ^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `at2020-control` (bin "at2020-control" test) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 9.57s
+     Running unittests src\main.rs (target\release\deps\at2020_control-e36e59cc9b61210d.exe)
+
+running 2 tests
+test selftest::tests::exclusive_section_runs_when_alone_or_allowed ... ok
+test selftest::tests::exclusive_section_skips_when_it_would_preempt_another_app ... FAILED
+
+failures:
+
+---- selftest::tests::exclusive_section_skips_when_it_would_preempt_another_app stdout ----
+
+thread 'selftest::tests::exclusive_section_skips_when_it_would_preempt_another_app' (8532) panicked at crates\app\src\selftest.rs:1632:24:
+must not pre-empt Voicemeeter's running stream: ()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    selftest::tests::exclusive_section_skips_when_it_would_preempt_another_app
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p at2020-control --bin at2020-control`
