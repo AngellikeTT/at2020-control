@@ -258,7 +258,36 @@ The peak of +1.1 dBFS means loud speech already clips with the endpoint at its m
 (+30 dB). Lowering the Windows mic level to about 75 % (+10.6 dB) would leave headroom.
 That is a suggestion only; I did not change it.
 
-**Full self-test:** `SELFTEST_REPORT.md`, with the 60-minute soak. Results below.
+**Full self-test** (`SELFTEST_REPORT.md`, 62.2 min, 60-minute soak): **62 passed, 5 failed, 1 warning**.
+
+- **Passed:**
+  - soak: **0 xruns**, CPU 0.09 %, memory 17.6 -> 14.4 MiB, ring 1058/1647/2324
+  - mic live; live noise 13.7 dB, speech preserved
+  - journal restore verified; volume, mute, enhancements and defaults unchanged
+- **Warning:** exclusive-mode section skipped because Voicemeeter is on the mic (by design).
+- **The 5 failures, and what happened to them:**
+
+  | Failure | Cause | Status |
+  |---|---|---|
+  | offline pipeline THD+N -50 dB at 4 rate pairs | **regression from my drift-controller fix**: the new estimate read the wall clock in the offline pump too | fixed (timing only on real-time streams); test `offline_pump_is_deterministic` failed first; values back to -150.9 / -89.5 / -147.2 / -55.5 dB |
+  | cable THD+N -11.7 dB | other audio mixed into `CABLE Input`, the Windows default playback device; Steam, Wallpaper Engine and Discord all play into it (`mic-probe "cable input" --render-sessions`) | environmental; -110.2 dB in every re-test |
+
+- **Re-test of the failed items only** (quick self-test without the soak, final build):
+  - **62/62 PASS** (`fix-logs\retest-failed-4.md`).
+  - A cable check that showed up in the re-tests ("stage via cable: low cut", 6.27 / 2.76 dB) was
+    a pre-existing measurement flaw: multitone alignment is ambiguous by 20 ms periods, and the
+    window included the padding. Fixed by reading the middle of the tone; 0.00 dB since.
+  - The live noise check is content-dependent. Over 5 runs it gave 9.1, 13.7 and 35.6 dB (pass),
+    -1.6 dB (fail, 10 s capture) and 0.2 dB (fail, only 2 s analysed: my too-short setting).
+    When the room's non-speech sound is something RNNoise keeps (music or other audio from
+    speakers), the Voice preset's make-up gain and EQ make it slightly louder. That is a
+    property of the preset, reported here; the check was not loosened.
+  - The full 60-minute soak was not repeated after these last fixes, which do not touch the
+    real-time path (the offline-timing gate and the self-test's measurement window).
+
+**Deliverable:** `dist\at2020-control.exe` (portable, icon embedded, built from this commit),
+`dist\AT2020-Control-0.2.0-portable.zip` and `dist\AT2020-Control-0.2.0-Setup.exe`.
+Smoke-tested (`--list-presets`); Smart App Control allowed it.
 
 ## 10. Rolling back
 
