@@ -23,7 +23,7 @@ use cpal::{
     BufferSize, FromSample, Sample, SampleFormat, SizedSample, Stream, StreamConfig,
     SupportedBufferSize,
 };
-use std::sync::atomic::Ordering::Relaxed;
+use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
 use std::sync::Arc;
 use triple_buffer::Output;
 
@@ -571,6 +571,17 @@ impl InputProcessor {
         if consumed > 0 {
             self.acc.drain(..consumed);
         }
+        // Timing for the render side's drift controller. Reading the clock is a
+        // user-mode QueryPerformanceCounter read, not a blocking call.
+        let now = self.shared.now_ns();
+        let last = self.shared.cap_push_ns.load(Relaxed);
+        if last != 0 {
+            let p = self.shared.cap_period_ns.load(Relaxed);
+            let d = now.saturating_sub(last);
+            let ema = if p == 0 { d } else { p - p / 8 + d / 8 };
+            self.shared.cap_period_ns.store(ema, Relaxed);
+        }
+        self.shared.cap_push_ns.store(now, Release);
     }
 }
 
@@ -678,20 +689,58 @@ impl OutputProcessor {
             self.shared.out_fill.store(fill, Relaxed);
         }
         let silence = T::from_sample(0.0f32);
+        // Clock-drift compensation works on an estimate of the fill that does not depend
+        // on callback order. The raw fill seen here jumps by a whole capture period
+        // depending on whether the input callback ran just before or just after this one;
+        // when the two devices' phases cross, that order keeps flipping and the controller
+        // used to bend the pitch (up to 0.2 %). Adding what the capture device has produced
+        // since its last push (elapsed time x rate, at most one capture period) gives the
+        // same value in either order. The target is raised by that one period so the raw
+        // cushion at this point is never smaller than TARGET_FILL, as before.
+        let (est, target) = {
+            let push = self.shared.cap_push_ns.load(Acquire);
+            let per = self.shared.cap_period_ns.load(Relaxed);
+            if push == 0 || per == 0 {
+                (fill as f64, TARGET_FILL as f64)
+            } else {
+                let dt = self.shared.now_ns().saturating_sub(push).min(per);
+                let to_samples = SAMPLE_RATE as f64 * 1e-9;
+                (
+                    fill as f64 + dt as f64 * to_samples,
+                    TARGET_FILL as f64 + per as f64 * to_samples,
+                )
+            }
+        };
         if !self.primed {
-            if fill >= TARGET_FILL {
+            // Start once the cushion is there in either callback order, so the
+            // controller starts at its equilibrium instead of correcting for seconds.
+            if fill >= TARGET_FILL && est >= target {
+                // The ring fills in whole frames, so it can hold up to a frame more than
+                // the target now; the clamped controller would need seconds (at a wrong
+                // pitch) to work that off. Nothing has been played yet: drop the excess
+                // oldest samples instead, so playback starts at the equilibrium.
+                let excess = ((est - target) as usize).min(fill - TARGET_FILL);
+                let mut scratch = [0.0f32; 64];
+                let mut left = excess;
+                while left > 0 {
+                    let k = left.min(scratch.len());
+                    let got = self.ring.pop(&mut scratch[..k]);
+                    if got == 0 {
+                        break;
+                    }
+                    left -= got;
+                }
                 self.primed = true;
-                self.fill_avg = fill as f64;
+                self.fill_avg = target;
             } else {
                 data.fill(silence);
                 return;
             }
         }
-        // Clock-drift compensation: nudge the resampling ratio toward the target fill.
-        // The measured fill is smoothed first: callbacks deliver bursts, and feeding that
+        // The estimate is smoothed first: callbacks deliver bursts, and feeding that
         // straight into the ratio would modulate pitch.
-        self.fill_avg += (fill as f64 - self.fill_avg) * 0.02;
-        let err = (self.fill_avg - TARGET_FILL as f64) / SAMPLE_RATE as f64;
+        self.fill_avg += (est - self.fill_avg) * 0.02;
+        let err = (self.fill_avg - target) / SAMPLE_RATE as f64;
         let want = (err * 0.5).clamp(-0.002, 0.002);
         self.adj += (want - self.adj) * 0.01;
         let step = (SAMPLE_RATE as f64 / self.out_rate) * (1.0 + self.adj);

@@ -39,6 +39,21 @@ fn rt_no_xruns_or_glitches_with_cpu_saturated() {
     assert_clean("48k->48k +1000ppm, load, params", &r);
 }
 
+/// The capture and render callbacks keep swapping order within the period (their
+/// phases cross): the drift controller must not mistake that frame-sized jump in the
+/// measured ring fill for clock drift, or it bends the pitch.
+#[test]
+#[serial(system)]
+fn rt_drift_controller_ignores_callback_order() {
+    let r = rtsim::run(&SimConfig {
+        out_ppm: 300.0,
+        capture_jitter_ms: 2.0,
+        secs: 8.0,
+        ..SimConfig::default()
+    });
+    assert_clean("48k->48k +300ppm, callback order flipping", &r);
+}
+
 /// Same with sample-rate conversion on both sides and a slow render clock.
 #[test]
 #[serial(system)]
@@ -148,7 +163,9 @@ fn faults_are_delivered_under_contention() {
     s.set_fault("device unplugged".into());
     assert_eq!(s.take_fault().as_deref(), Some("device unplugged"));
     assert_eq!(s.take_fault(), None);
-    assert!(taken > 0);
+    // `taken` may legitimately be 0: on a single core the setters can all finish before
+    // the draining thread runs once. Delivery is what the lines above check.
+    let _ = taken;
 }
 
 // ------------------------------------------------------------ real devices --

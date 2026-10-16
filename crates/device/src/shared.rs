@@ -85,6 +85,12 @@ pub struct Shared {
     pub rec_source: AtomicU32,
     /// Number of audio threads registered with MMCSS "Pro Audio".
     pub mmcss_threads: AtomicU32,
+    /// Capture-side timing for the drift controller (see `OutputProcessor::fill`):
+    /// when the input callback last pushed (ns since `epoch`, 0 = never) and the
+    /// smoothed interval between input callbacks.
+    pub epoch: std::time::Instant,
+    pub cap_push_ns: AtomicU64,
+    pub cap_period_ns: AtomicU64,
 }
 
 impl Shared {
@@ -112,7 +118,15 @@ impl Shared {
             rec_active: AtomicBool::new(false),
             rec_source: AtomicU32::new(REC_PROCESSED),
             mmcss_threads: AtomicU32::new(0),
+            epoch: std::time::Instant::now(),
+            cap_push_ns: AtomicU64::new(0),
+            cap_period_ns: AtomicU64::new(0),
         }
+    }
+
+    /// Nanoseconds since `epoch` (never 0, so 0 can mean "not yet").
+    pub fn now_ns(&self) -> u64 {
+        (self.epoch.elapsed().as_nanos() as u64).max(1)
     }
     pub fn set_fault(&self, msg: String) {
         if let Ok(mut f) = self.fault.lock() {

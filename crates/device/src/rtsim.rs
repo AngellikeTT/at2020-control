@@ -31,6 +31,10 @@ pub struct SimConfig {
     pub toggle_params: bool,
     pub tone_hz: f64,
     pub tone_amp: f32,
+    /// Random offset (+/- ms) of each capture callback against the render callback, so
+    /// their order within a period keeps changing, as when two real devices' callback
+    /// phases cross.
+    pub capture_jitter_ms: f64,
 }
 
 impl Default for SimConfig {
@@ -45,6 +49,7 @@ impl Default for SimConfig {
             toggle_params: false,
             tone_hz: 1000.0,
             tone_amp: 0.25,
+            capture_jitter_ms: 0.0,
         }
     }
 }
@@ -202,9 +207,18 @@ pub fn run(cfg: &SimConfig) -> SimReport {
             let mut k = 0u32;
             let (mut busy, mut gap, mut last_done) = (Duration::ZERO, Duration::ZERO, None);
             let mut events = Vec::new();
+            let mut rng = 0x2545_F491_4F6C_DD1Du64;
             while (k as f64) * cfg.period_ms / 1000.0 < cfg.secs {
                 k += 1;
-                let l = sleep_until(t0 + period * k);
+                rng ^= rng << 13;
+                rng ^= rng >> 7;
+                rng ^= rng << 17;
+                let u = (rng >> 11) as f64 / (1u64 << 53) as f64; // 0..1
+                let jitter = Duration::from_secs_f64(cfg.capture_jitter_ms * u / 1000.0);
+                // Deadline = nominal + 0..2*jitter - jitter, kept within the period.
+                let due = t0 + period * k + jitter * 2
+                    - Duration::from_secs_f64(cfg.capture_jitter_ms / 1000.0);
+                let l = sleep_until(due);
                 late.fetch_max(l.as_micros() as usize, Relaxed);
                 if l > period / 2 {
                     events.push(format!("capture tick {k}: woke {:.1} ms late", ms(l)));

@@ -45,7 +45,8 @@ if (($classes | Measure-Object).Count -gt 1) {
 }
 if ($Masks.Count -gt 0) { $sel = [ordered]@{}; foreach ($k in $Masks) { $sel[$k] = $cells[$k] }; $cells = $sel }
 
-cargo test --release --workspace --no-run 2>&1 | Out-Null
+# Through cmd: Windows PowerShell treats a native tool's stderr output as an error record.
+cmd /c "cargo test --release --workspace --no-run >NUL 2>&1"
 if ($LASTEXITCODE -ne 0) { throw "build failed" }
 
 New-Item -ItemType Directory -Force test-matrix | Out-Null
