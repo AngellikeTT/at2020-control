@@ -11,3 +11,10 @@ serde.workspace = true
 nnnoiseless.workspace = true
 realfft.workspace = true
 hound.workspace = true
+
+# Model checking of the lock-free code (src/sync.rs, src/ring.rs); see src/sync.rs.
+[target.'cfg(loom)'.dev-dependencies]
+loom = "0.7"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(loom)"] }

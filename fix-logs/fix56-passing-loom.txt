@@ -1,0 +1,17 @@
+﻿cargo :    Compiling core-dsp v0.2.0 (D:\Mic App - Claude\crates\core-dsp)
+At line:1 char:379
++ ... $env:PATH"; cargo test --release -p core-dsp --lib --target x86_64-pc ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (   Compiling co...rates\core-dsp):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+    Finished `release` profile [optimized] target(s) in 16.66s
+     Running unittests src\lib.rs (target\x86_64-pc-windows-msvc\release\deps\core_dsp-beb614c39f2c58a2.exe)
+
+running 3 tests
+test sync::loom_tests::loom_meter_peak_survives_concurrent_take ... ok
+test ring::loom_tests::loom_spsc_transfers_in_order ... ok
+test ring::loom_tests::loom_observer_len_never_exceeds_capacity ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 1.36s
+

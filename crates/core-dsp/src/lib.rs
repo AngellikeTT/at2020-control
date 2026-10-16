@@ -12,3 +12,4 @@ pub mod params;
 pub mod resample;
 pub mod ring;
 pub mod spectrum;
+pub mod sync;

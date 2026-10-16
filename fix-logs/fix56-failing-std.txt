@@ -1,0 +1,66 @@
+﻿cargo :     Updating crates.io index
+At line:1 char:379
++ ... $env:PATH"; cargo test --release --workspace -- sync:: ring:: 2>&1 |  ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (    Updating crates.io index:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+     Locking 6 packages to highest compatible versions
+      Adding generator v0.8.11
+      Adding loom v0.7.2
+      Adding nu-ansi-term v0.50.3
+      Adding tracing-log v0.2.0
+      Adding valuable v0.1.1
+      Adding windows-result v0.4.1
+   Compiling core-dsp v0.2.0 (D:\Mic App - Claude\crates\core-dsp)
+   Compiling device v0.2.0 (D:\Mic App - Claude\crates\device)
+   Compiling at2020-control v0.2.0 (D:\Mic App - Claude\crates\app)
+    Finished `release` profile [optimized] target(s) in 18.17s
+     Running unittests src\main.rs (target\release\deps\at2020_control-8f5667f50866f8e7.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\release\deps\core_dsp-153558b3c0cb40cd.exe)
+
+running 7 tests
+test ring::tests::push_is_bounded ... ok
+test sync::tests::negative_and_non_finite_values_are_ignored ... ok
+test ring::tests::wraps_and_preserves_order ... ok
+test sync::tests::negative_zero_does_not_hide_later_peaks ... FAILED
+test ring::tests::threads ... ok
+test ring::tests::len_seen_by_an_observer_is_bounded ... FAILED
+test sync::tests::concurrent_peaks_are_never_lost ... FAILED
+
+failures:
+
+---- sync::tests::negative_zero_does_not_hide_later_peaks stdout ----
+
+thread 'sync::tests::negative_zero_does_not_hide_later_peaks' (7380) panicked at crates\core-dsp\src\sync.rs:52:9:
+assertion `left == right` failed
+  left: -0.0
+ right: 0.5
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- ring::tests::len_seen_by_an_observer_is_bounded stdout ----
+
+thread 'ring::tests::len_seen_by_an_observer_is_bounded' (10228) panicked at crates\core-dsp\src\ring.rs:109:9:
+observer saw len 18446744073709551615 > capacity 64
+
+---- sync::tests::concurrent_peaks_are_never_lost stdout ----
+
+thread 'sync::tests::concurrent_peaks_are_never_lost' (8464) panicked at crates\core-dsp\src\sync.rs:89:9:
+assertion `left == right` failed
+  left: 3.0
+ right: 4.0
+
+
+failures:
+    ring::tests::len_seen_by_an_observer_is_bounded
+    sync::tests::concurrent_peaks_are_never_lost
+    sync::tests::negative_zero_does_not_hide_later_peaks
+
+test result: FAILED. 4 passed; 3 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `-p core-dsp --lib`

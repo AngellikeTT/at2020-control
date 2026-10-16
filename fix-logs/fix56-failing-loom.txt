@@ -1,0 +1,37 @@
+﻿cargo :     Finished `release` profile [optimized] target(s) in 0.10s
+At line:1 char:379
++ ... $env:PATH"; cargo test --release -p core-dsp --lib --target x86_64-pc ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (    Finished `r...get(s) in 0.10s:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+     Running unittests src\lib.rs (target\x86_64-pc-windows-msvc\release\deps\core_dsp-beb614c39f2c58a2.exe)
+
+running 3 tests
+test sync::loom_tests::loom_meter_peak_survives_concurrent_take ... FAILED
+test ring::loom_tests::loom_observer_len_never_exceeds_capacity ... FAILED
+test ring::loom_tests::loom_spsc_transfers_in_order ... ok
+
+failures:
+
+---- sync::loom_tests::loom_meter_peak_survives_concurrent_take stdout ----
+
+thread 'sync::loom_tests::loom_meter_peak_survives_concurrent_take' (17692) panicked at crates\core-dsp\src\sync.rs:116:13:
+assertion `left == right` failed: first 0, second -0
+  left: -0.0
+ right: 0.75
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- ring::loom_tests::loom_observer_len_never_exceeds_capacity stdout ----
+
+thread 'ring::loom_tests::loom_observer_len_never_exceeds_capacity' (12860) panicked at crates\core-dsp\src\ring.rs:199:21:
+observer saw len 18446744073709551615
+
+
+failures:
+    ring::loom_tests::loom_observer_len_never_exceeds_capacity
+    sync::loom_tests::loom_meter_peak_survives_concurrent_take
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.40s
+
+error: test failed, to rerun pass `-p core-dsp --lib`

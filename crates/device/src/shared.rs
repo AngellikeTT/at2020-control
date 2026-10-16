@@ -4,32 +4,10 @@
 
 use core_dsp::params::ChainParams;
 use core_dsp::ring::Ring;
+pub use core_dsp::sync::AtomicF32;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
 use triple_buffer::{triple_buffer, Input, Output};
-
-pub struct AtomicF32(AtomicU32);
-impl AtomicF32 {
-    pub fn new(v: f32) -> Self {
-        Self(AtomicU32::new(v.to_bits()))
-    }
-    pub fn load(&self) -> f32 {
-        f32::from_bits(self.0.load(Relaxed))
-    }
-    pub fn store(&self, v: f32) {
-        self.0.store(v.to_bits(), Relaxed)
-    }
-    /// Peak-hold update; only valid for non-negative values (bit order == numeric order).
-    pub fn fetch_max(&self, v: f32) {
-        if v.is_finite() && v >= 0.0 {
-            self.0.fetch_max(v.to_bits(), Relaxed);
-        }
-    }
-    /// Read and reset to zero.
-    pub fn take(&self) -> f32 {
-        f32::from_bits(self.0.swap(0, Relaxed))
-    }
-}
 
 /// Parameter hand-off. The UI publishes into a triple buffer; the audio thread reads
 /// the newest published value without blocking, locking or allocating.
