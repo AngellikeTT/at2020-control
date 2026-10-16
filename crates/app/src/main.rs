@@ -73,8 +73,16 @@ fn main() -> eframe::Result<()> {
             }
         };
     }
+    // Anything a killed or crashed earlier run left changed (mic volume / mute while
+    // testing) is put back before this run touches a device.
+    let recovered = device::restore::recover_at_startup();
     if args.iter().any(|a| a == "--selftest") {
         attach_console();
+        match &recovered {
+            Some(Ok(m)) => println!("startup: {m}"),
+            Some(Err(e)) => eprintln!("startup: could not restore the journaled state: {e}"),
+            None => {}
+        }
         let opts = selftest::Options::from_args(&args);
         std::process::exit(selftest::run(&opts));
     }
@@ -83,10 +91,20 @@ fn main() -> eframe::Result<()> {
         .any(|a| a == "--process" || a == "--list-presets")
     {
         attach_console();
+        match &recovered {
+            Some(Ok(m)) => eprintln!("startup: {m}"),
+            Some(Err(e)) => eprintln!("startup: could not restore the journaled state: {e}"),
+            None => {}
+        }
         std::process::exit(cli::run(&args));
     }
 
     let _log_guard = logging::init();
+    match &recovered {
+        Some(Ok(m)) => tracing::warn!("startup: {m}"),
+        Some(Err(e)) => tracing::error!("startup: could not restore the journaled state: {e}"),
+        None => {}
+    }
     let opts = app::LaunchOptions {
         minimized: args.iter().any(|a| a == "--minimized"),
         screenshots: arg_value(&args, "--screenshots").map(std::path::PathBuf::from),

@@ -747,6 +747,8 @@ dependencies = [
  "core-dsp",
  "cpal",
  "hound",
+ "serde",
+ "serde_json",
  "tracing",
  "triple_buffer",
  "windows 0.58.0",

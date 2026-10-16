@@ -8,6 +8,8 @@ description = "Windows audio devices: Core Audio control, shared (cpal) and excl
 [dependencies]
 core-dsp.workspace = true
 anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 cpal.workspace = true
 triple_buffer.workspace = true
 tracing.workspace = true

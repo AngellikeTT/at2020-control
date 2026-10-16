@@ -519,31 +519,6 @@ mod procinfo {
     }
 }
 
-// ----------------------------------------------------------- restore guard --
-
-struct Restore<'a> {
-    dev: &'a DevCtl,
-    id: Option<String>,
-    volume: f32,
-    mute: bool,
-    active: bool,
-}
-
-impl Drop for Restore<'_> {
-    fn drop(&mut self) {
-        if !self.active {
-            return;
-        }
-        if let Some(id) = &self.id {
-            self.dev.send(Cmd::Select(id.clone()));
-            std::thread::sleep(Duration::from_millis(700));
-        }
-        self.dev.send(Cmd::SetVolume(self.volume));
-        self.dev.send(Cmd::SetMute(self.mute));
-        std::thread::sleep(Duration::from_millis(500));
-    }
-}
-
 fn wait_for(dev: &DevCtl, timeout_ms: u64, f: impl Fn(&DevState) -> bool) -> Option<DevState> {
     let t0 = Instant::now();
     loop {
@@ -1523,14 +1498,24 @@ pub fn run(opts: &Options) -> i32 {
 
     let (devices, st) = sec_devices(&mut r, &dev);
     let before = st.clone();
-    let guard = Restore {
-        dev: &dev,
-        id: st.as_ref().and_then(|s| s.selected_id.clone()),
-        volume: st.as_ref().map_or(1.0, |s| s.volume),
-        mute: st.as_ref().is_some_and(|s| s.mute),
-        active: st.as_ref().is_some_and(|s| s.has_endpoint),
+    // The endpoint state is journaled to disk before anything is changed: restored at
+    // the end, on unwind, or by the next launch if this process is killed.
+    let id = st.as_ref().and_then(|s| s.selected_id.clone());
+    let mut journal = match (&id, device::restore::default_journal_path()) {
+        (Some(id), Some(path)) if st.as_ref().is_some_and(|s| s.has_endpoint) => {
+            match device::restore::Journal::begin(&path, device::restore::CoreAudio, id) {
+                Ok(j) => Some(j),
+                Err(e) => {
+                    r.warn(format!(
+                        "could not journal the mic state ({e:#}); volume tests skipped"
+                    ));
+                    None
+                }
+            }
+        }
+        _ => None,
     };
-    if let Some(s) = &st {
+    if let (Some(s), Some(_)) = (&st, &journal) {
         sec_volume(&mut r, &dev, s);
     }
     sec_hotplug(&mut r, &dev, &devices);
@@ -1541,8 +1526,33 @@ pub fn run(opts: &Options) -> i32 {
 
     // Final verification that nothing was left changed.
     r.h("System state restored");
-    let (id, vol, mute) = (guard.id.clone(), guard.volume, guard.mute);
-    drop(guard);
+    if let Some(j) = journal.as_mut() {
+        match j.restore() {
+            Ok(rec) => {
+                r.check(
+                    "journaled endpoint state restored and verified",
+                    true,
+                    format!(
+                        "\"{}\": volume {:.0}%, {} channel level(s), mute={}",
+                        rec.restored.name,
+                        rec.restored.volume_scalar * 100.0,
+                        rec.restored.channel_scalars.len(),
+                        rec.restored.mute
+                    ),
+                );
+                for w in rec.warnings {
+                    r.warn(w);
+                }
+            }
+            Err(e) => r.check(
+                "journaled endpoint state restored and verified",
+                false,
+                format!("{e:#} (the journal is kept; the next launch retries)"),
+            ),
+        }
+    }
+    drop(journal);
+    let (vol, mute) = before.as_ref().map_or((1.0, false), |s| (s.volume, s.mute));
     if let Some(b) = before {
         let a = wait_for(&dev, 4000, |s| {
             s.selected_id == id && (s.volume - vol).abs() < 0.03 && s.mute == mute
