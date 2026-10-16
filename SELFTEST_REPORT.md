@@ -1,6 +1,6 @@
 # SELFTEST REPORT
 
-Generated 2026-10-15 23:44:45 UTC - run time 61.8 min - 65 passed, 1 failed, 0 warnings
+Generated 2026-10-16 00:59:01 UTC - run time 61.8 min - 66 passed, 0 failed, 0 warnings
 
 
 ## DSP stages (offline, 48 kHz)
@@ -10,7 +10,7 @@ Generated 2026-10-15 23:44:45 UTC - run time 61.8 min - 65 passed, 1 failed, 0 w
 - **PASS** bypass applies input gain only (+6 dB): +6.00 dB
 - **PASS** low cut -3 dB at corner: -3.01 dB @80 Hz
 - **PASS** low cut passes 1 kHz: -0.00 dB
-- **PASS** RNNoise suppresses stationary noise: -30.0 dBFS -> -90.8 dBFS (60.8 dB)
+- **PASS** RNNoise suppresses stationary noise: -30.0 dBFS -> -91.5 dBFS (61.5 dB)
 - **PASS** gate open passes signal: -0.00 dB
 - **PASS** gate closed attenuates: -60.0 dB
 - **PASS** EQ +6 dB peak at 1 kHz: +6.00 dB
@@ -21,7 +21,7 @@ Generated 2026-10-15 23:44:45 UTC - run time 61.8 min - 65 passed, 1 failed, 0 w
 - **PASS** de-esser reduces 6.5 kHz: -12.0 dB
 - **PASS** de-esser leaves 500 Hz alone: -0.00 dB
 - **PASS** VAD gate shuts on non-voice noise: -25.0 -> -65.0 dBFS (40.0 dB)
-- **FAIL** parameter changes are click-free: max step 0.0265 vs clean sine 0.0104
+- **PASS** parameter changes are click-free: max step 0.0105 vs clean sine 0.0104
 
 ## Engine pipeline (offline: resampler, ring, drift control)
 
@@ -95,26 +95,26 @@ Generated 2026-10-15 23:44:45 UTC - run time 61.8 min - 65 passed, 1 failed, 0 w
 - meters: in peak -180.0 dBFS, out peak -180.0 dBFS, max GR -0.0 dB, VAD mean 0.00 max 0.00
 - **PASS** no stream fault: None
 - **PASS** underruns after start-up <= 2: 0
-- **PASS** live latency estimate < 120 ms: 47.3 ms
+- **PASS** live latency estimate < 120 ms: 42.5 ms
 - raw mic RMS -200.0 dBFS; cable capture RMS -200.0 dBFS (+0.0 dB)
-- **PASS** processed audio arrives at CABLE Output: 1461120 samples captured
+- **PASS** processed audio arrives at CABLE Output: 1460160 samples captured
 - **PASS** capture has no NaN/inf: all finite
 
 ## VB-CABLE loopback
 
-- **PASS** cable render-to-capture latency < 150 ms: 98.7 ms
+- **PASS** cable render-to-capture latency < 150 ms: 91.2 ms
 - **PASS** flat response (DSP bypassed): worst 0.00 dB; 100:+0.00 250:+0.00 500:+0.00 1000:+0.00 2000:-0.00 4000:-0.00 8000:-0.00 12000:-0.00 16000:-0.00
 - **PASS** cable gain near unity: 1 kHz reads -0.00 dB re -12 dBFS
 - **PASS** cable THD+N @1 kHz -6 dBFS: -110.2 dB
 - stage output generated offline, rendered through the cable, compared per tone
-- **PASS** stage via cable: low cut 150 Hz: tone levels dBFS -33.8/-26.0/-26.0/-26.0/-26.0; device-path error 0.07 dB
-- **PASS** stage via cable: RNNoise: tone levels dBFS -32.2/-26.0/-26.0/-26.2/-27.5; device-path error 0.04 dB
-- **PASS** stage via cable: gate: tone levels dBFS -26.0/-26.0/-26.0/-26.0/-26.0; device-path error 0.26 dB
-- **PASS** stage via cable: EQ +6 dB @3 kHz: tone levels dBFS -26.0/-25.8/-25.2/-20.0/-25.2; device-path error 0.26 dB
+- **PASS** stage via cable: low cut 150 Hz: tone levels dBFS -33.8/-26.0/-26.0/-26.0/-26.0; device-path error 0.04 dB
+- **PASS** stage via cable: RNNoise: tone levels dBFS -32.2/-26.0/-26.0/-26.3/-27.6; device-path error 0.00 dB
+- **PASS** stage via cable: gate: tone levels dBFS -26.0/-26.0/-26.0/-26.0/-26.0; device-path error 0.00 dB
+- **PASS** stage via cable: EQ +6 dB @3 kHz: tone levels dBFS -26.0/-25.8/-25.2/-20.0/-25.2; device-path error 0.00 dB
 - **PASS** stage via cable: compressor: tone levels dBFS -34.0/-34.0/-34.0/-34.0/-34.0; device-path error 0.00 dB
 - **PASS** stage via cable: limiter: tone levels dBFS -17.9/-18.0/-17.9/-18.0/-18.0; device-path error 0.00 dB
 - **PASS** stage via cable: de-esser @8 kHz: tone levels dBFS -26.0/-26.0/-26.0/-26.4/-37.9; device-path error 0.00 dB
-- **PASS** stage via cable: VAD gate: tone levels dBFS -26.0/-26.0/-26.0/-26.0/-26.0; device-path error 0.26 dB
+- **PASS** stage via cable: VAD gate: tone levels dBFS -26.0/-26.0/-26.0/-26.0/-26.0; device-path error 0.00 dB
 
 ## WASAPI exclusive mode
 
@@ -127,7 +127,7 @@ Generated 2026-10-15 23:44:45 UTC - run time 61.8 min - 65 passed, 1 failed, 0 w
 
 ## Soak (60 min)
 
-- ran 60.0 min; ring fill min/avg/max 937/1437/1920 samples; CPU avg 0.06% max 0.31% (of 20 logical CPUs)
+- ran 60.0 min; ring fill min/avg/max 960/1440/1903 samples; CPU avg 0.06% max 0.39% (of 20 logical CPUs)
 - **PASS** no stream fault: None
 - **PASS** xruns (output underruns): 0
 - **PASS** CPU average < 10%: 0.06%

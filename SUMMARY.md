@@ -8,7 +8,7 @@ a human are in `HUMAN_TESTS.md`; machine-level notes are in `SETUP_NEEDED.md`.
 | Phase | Status |
 |---|---|
 | 1. Builds on Windows | **Done.** `cargo build --release`, `cargo test --release --workspace` (40 tests), `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check` all clean. No test was weakened. devctl.rs compiled once `windows-core` + the `implement` feature were added. |
-| 2. `--selftest` | **Done.** Writes `SELFTEST_REPORT.md`, restores volume/mute (guard), compares enhancement flag and default devices before/after. First full run (incl. the 60-minute soak) passed 56/56 and exposed two real defects that were fixed (pitch-modulating drift controller, see DECISIONS #11; test-method issues #12-14). The final run's numbers are in `SELFTEST_REPORT.md`. |
+| 2. `--selftest` | **Done.** Writes `SELFTEST_REPORT.md`, restores volume/mute (guard), compares enhancement flag and default devices before/after. It exposed three real defects that were fixed: a pitch-modulating drift controller (DECISIONS #11) and two click sources in parameter changes (#40). Final full run: 66/66 with a 60-minute soak. |
 | 3. Features | **Done** (list below). Exclusive mode is real (own WASAPI code), verified on this hardware: 144-frame (3 ms) buffers on both the mic and the cable, 0 underruns. |
 | 4. Themes, fonts, polish, icon | **Done.** 63 screenshots (9 themes x 7 tabs) in `screenshots\`. |
 | 5. Workspace, CI, installer, docs | **Done**, with the caveats below (CI never ran; installer built but not executed). |
@@ -39,9 +39,9 @@ a human are in `HUMAN_TESTS.md`; machine-level notes are in `SETUP_NEEDED.md`.
    not disable it (irreversible security downgrade; your call). Effects: debug-profile `cargo test` and new build
    scripts fail with `os error 4551` on this PC, so tests are run with `--release`, and the workspace has no build
    script (the icon is embedded post-build instead). Details: DECISIONS #36, SETUP_NEEDED.md.
-2. **The microphone has been delivering exact digital silence since ~15:30** (raw capture and Windows' peak meter;
+2. **The microphone has been delivering exact digital silence since about 14:35** (raw capture and Windows' peak meter;
    endpoint mute is off, volume 100 %). Probably the AT2020USB-X's touch-mute or a privacy setting. The live
-   RNNoise check passed earlier with a live mic (raw -52.3 dBFS -> processed -66.0 dBFS, 13.7 dB suppression); the
+   RNNoise check passed in an early quick run with a live mic (console output only, not saved) (raw -52.3 dBFS -> processed -66.0 dBFS, 13.7 dB suppression); the
    screenshots show flat meters for the same reason.
 3. **Installer not executed** (it would add a Start-menu entry and registry keys). Inno Setup is not installed and
    I did not install it; the IExpress fallback was used. CI uses Inno Setup.
@@ -59,8 +59,9 @@ a human are in `HUMAN_TESTS.md`; machine-level notes are in `SETUP_NEEDED.md`.
 ## Verification snapshot
 
 - Unit tests: 40 (30 core-dsp, 8 app: themes/settings, 2 device).
-- Self-test (full, earlier build): 56 passed, 0 failed, 60.0 min soak: 0 xruns, ring fill 804/1437/1924 samples,
-  CPU avg 0.23 % (of 20 logical CPUs), memory 20.3 -> 20.5 MiB, system state restored.
-- Self-test (final build): see `SELFTEST_REPORT.md` (the soak line is the long pole).
+- Self-test (final build f577500, full run): **66 passed, 0 failed, 0 warnings**, 61.8 min. Soak 60.0 min: 0 xruns,
+  ring fill 960/1440/1903 samples, CPU avg 0.06 % (max 0.39 % of 20 logical CPUs), working set 25.2 -> 25.2 MiB,
+  mic volume/mute/enhancement flag/default devices restored. Includes exclusive mode (144-frame buffers, 0 underruns)
+  and the click-free parameter-change check.
 - Cable round trip: flat to 0.00 dB (100 Hz-16 kHz), THD+N -110 dB, device-path latency about 110-120 ms in
   shared mode; exclusive mode estimate about 50 ms end to end.

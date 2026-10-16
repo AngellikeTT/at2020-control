@@ -16,11 +16,12 @@ Everything needed to build is installed. Nothing further is **required**.
    reputation for: debug-profile test binaries and new Cargo build scripts failed with
    `os error 4551`. I did not turn it off (a security downgrade that is irreversible without an OS
    reset, so it is yours to decide). What works: `cargo build --release`, `cargo test --release`,
-   `cargo clippy`, and running the freshly built release exe. If you want normal `cargo test`
+   `cargo clippy`, and running freshly built release executables, although the verdict is per file hash and not
+   always the same: when a new exe was blocked, rebuilding (the build id changes the hash) was enough. If you want normal `cargo test`
    (debug) and arbitrary new build scripts here, either disable Smart App Control in
    *Windows Security -> App & browser control -> Smart App Control*, or sign the binaries with a
    certificate Windows trusts.
-2. **The microphone has been delivering digital silence since about 15:30** (both the raw
+2. **The microphone has been delivering digital silence since about 14:35** (both the raw
    WASAPI capture and Windows' own peak meter read exact zeros; endpoint mute is *off* and
    volume is 100 %). The AT2020USB-X has a touch-sensitive mute: check its LED / tap it, and check
    *Windows Settings -> Privacy -> Microphone*. The automated tests that need real mic content
