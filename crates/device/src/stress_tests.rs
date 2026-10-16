@@ -67,6 +67,21 @@ fn rt_resampling_path_under_load_with_slow_clock() {
     assert_clean("44.1k->48k -500ppm, load", &r);
 }
 
+/// The offline pump (self-test pipeline, `--process`) has no real-time clock: its output
+/// must not depend on wall-clock timing. (The phase-independent drift estimate once
+/// read the clock there too, and offline THD+N fell from -150 to -50 dB.)
+#[test]
+fn offline_pump_is_deterministic() {
+    let x: Vec<f32> = (0..96_000)
+        .map(|i| 0.25 * (std::f64::consts::TAU * 1000.0 * i as f64 / 44_100.0).sin() as f32)
+        .collect();
+    let p = ChainParams::flat();
+    let a = crate::engine::pump_offline(&x, 44_100, 48_000, &p);
+    let b = crate::engine::pump_offline(&x, 44_100, 48_000, &p);
+    assert_eq!(a.len(), b.len());
+    assert!(a == b, "offline output differs between identical runs");
+}
+
 // -------------------------------------------------------- shared state ---
 
 /// UI threads publish parameter sets while the engine is restarted over and over

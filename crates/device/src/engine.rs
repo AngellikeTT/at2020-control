@@ -455,6 +455,8 @@ pub(crate) struct InputProcessor {
     main: Arc<Ring>,
     mon: Arc<Ring>,
     pub(crate) mmcss: bool,
+    /// Publish capture timing for the drift controller (real-time streams only).
+    pub(crate) timing: bool,
 }
 
 impl InputProcessor {
@@ -487,6 +489,7 @@ impl InputProcessor {
             main,
             mon,
             mmcss: false,
+            timing: true,
         }
     }
 
@@ -572,7 +575,11 @@ impl InputProcessor {
             self.acc.drain(..consumed);
         }
         // Timing for the render side's drift controller. Reading the clock is a
-        // user-mode QueryPerformanceCounter read, not a blocking call.
+        // user-mode QueryPerformanceCounter read, not a blocking call. Offline runs
+        // (no real-time clock) leave it off so their output stays deterministic.
+        if !self.timing {
+            return;
+        }
         let now = self.shared.now_ns();
         let last = self.shared.cap_push_ns.load(Relaxed);
         if last != 0 {
@@ -850,6 +857,8 @@ pub fn pump_offline(input: &[f32], in_rate: u32, out_rate: u32, params: &ChainPa
     // Offline: no real-time thread to register with MMCSS.
     out.mmcss = true;
     inp.mmcss = true;
+    // No wall clock offline: the drift controller works on the raw fill, as before.
+    inp.timing = false;
     let chunk_in = (in_rate as usize / 100).max(1);
     let mut result = Vec::with_capacity(input.len() * out_rate as usize / in_rate as usize + 1024);
     let mut owed = 0.0f64;

@@ -1,0 +1,41 @@
+﻿cargo :    Compiling device v0.2.0 (D:\Mic App - Claude\crates\device)
+At line:1 char:426
++ ... gine.rs -q; cargo test --release --workspace -- offline_pump 2>&1 | T ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (   Compiling de...\crates\device):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+   Compiling at2020-control v0.2.0 (D:\Mic App - Claude\crates\app)
+    Finished `release` profile [optimized] target(s) in 14.82s
+     Running unittests src\main.rs (target\release\deps\at2020_control-8f5667f50866f8e7.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\release\deps\core_dsp-153558b3c0cb40cd.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 40 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\release\deps\device-5a18881333a4622f.exe)
+
+running 1 test
+test stress_tests::offline_pump_is_deterministic ... FAILED
+
+failures:
+
+---- stress_tests::offline_pump_is_deterministic stdout ----
+
+thread 'stress_tests::offline_pump_is_deterministic' (26292) panicked at crates\device\src\stress_tests.rs:82:5:
+offline output differs between identical runs
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    stress_tests::offline_pump_is_deterministic
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 25 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p device --lib`
