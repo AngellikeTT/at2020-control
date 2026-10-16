@@ -1,0 +1,40 @@
+﻿probe at SystemTime { intervals: 134365956816631160 }
+capture endpoints (all states):
+  [ACTIVE    ] CABLE Output (VB-Audio Virtual Cable)  {0.0.1.00000000}.{0548f276-c55f-4207-ab48-6ad92c532649}
+  [UNPLUGGED ] Microphone (Realtek(R) Audio)  {0.0.1.00000000}.{06ccffd5-e327-48b7-993d-1ac60aaf3398}
+  [ACTIVE    ] Microphone (C505 HD Webcam)  {0.0.1.00000000}.{1480b4b2-a719-4fbf-82c6-60d938d77e3e}
+  [NOTPRESENT] Side (Realtek(R) Audio)  {0.0.1.00000000}.{22ebb780-d339-4e94-aa03-42366f699b4c}
+  [NOTPRESENT] Subwoofer (Realtek(R) Audio)  {0.0.1.00000000}.{3b5ddf58-d0a7-41d2-a3a1-8077b5069aba}
+  [ACTIVE    ] Microphone (AT2020USB-X)  {0.0.1.00000000}.{3dd98fed-a843-4b22-a48c-f80c7841252d} default-console default-multimedia default-communications
+  [ACTIVE    ] Voicemeeter Out B3 (VB-Audio Voicemeeter VAIO)  {0.0.1.00000000}.{4ffb49e1-ccd0-4d90-9d26-84c66cb25ce3}
+  [ACTIVE    ] Voicemeeter Out A3 (VB-Audio Voicemeeter VAIO)  {0.0.1.00000000}.{5e2bcdf3-4445-4e7b-afe5-45e00abafde9}
+  [ACTIVE    ] Voicemeeter Out B1 (VB-Audio Voicemeeter VAIO)  {0.0.1.00000000}.{68341d48-3663-4985-a2d9-6c3deaae956e}
+  [NOTPRESENT] Front Pink In (Realtek(R) Audio)  {0.0.1.00000000}.{754fb0de-5f04-432b-9508-d3d7be6782ce}
+  [ACTIVE    ] Voicemeeter Out A4 (VB-Audio Voicemeeter VAIO)  {0.0.1.00000000}.{768e6acc-35eb-40bb-89d8-792f5a51c6dc}
+  [DISABLED  ] Stereo Mix (Realtek(R) Audio)  {0.0.1.00000000}.{77ef6f27-faa9-4aee-9965-e23b47aa2dde}
+  [NOTPRESENT] Center (Realtek(R) Audio)  {0.0.1.00000000}.{99e55467-fe2e-4ad9-86e1-7807810a1823}
+  [ACTIVE    ] Voicemeeter Out A5 (VB-Audio Voicemeeter VAIO)  {0.0.1.00000000}.{b786fbb9-ba8a-4435-8303-092466ee2668}
+  [NOTPRESENT] Front Green In (Realtek(R) Audio)  {0.0.1.00000000}.{bc21f2b3-a43b-4e8e-bfce-187681fff6b2}
+  [NOTPRESENT] Front (Realtek(R) Audio)  {0.0.1.00000000}.{c0c1fb62-369d-45d6-9125-466a075012ff}
+  [NOTPRESENT] Rear Pink In (Realtek(R) Audio)  {0.0.1.00000000}.{ce8a3668-b745-4cc1-b265-cb8d3b57b238}
+  [ACTIVE    ] Headset Microphone (DualSense Wireless Controller)  {0.0.1.00000000}.{d9584877-1597-4777-86cd-c1f96e432030}
+  [ACTIVE    ] Voicemeeter Out A2 (VB-Audio Voicemeeter VAIO)  {0.0.1.00000000}.{de0d7ded-c4e6-4dc3-8ef0-e72053a78ce9}
+  [ACTIVE    ] Voicemeeter Out B2 (VB-Audio Voicemeeter VAIO)  {0.0.1.00000000}.{e291cd42-f511-49c9-812f-ef6814bf9f4c}
+  [ACTIVE    ] Voicemeeter Out A1 (VB-Audio Voicemeeter VAIO)  {0.0.1.00000000}.{e5322534-3e13-45e7-8ab3-bd138baacc92}
+chosen: Microphone (AT2020USB-X)
+endpoint volume: scalar 1.000, 30.00 dB (range -13.0..30.0 step 0.375), mute false
+sessions on this endpoint: 2
+  pid  32712 ACTIVE   
+  pid      0 inactive 
+hardware topology (driver view):
+  part "Microphone" (connector) DFF21BE1-F70F-11D0-B917-00A0C9223196
+  part "ADC" (subunit) 4D837FE0-C555-11D0-8A2B-00A0C9255AC1
+  part "Volume" (subunit) 3A5ACC00-C557-11D0-8A2B-00A0C9255AC1
+  [Volume] hardware level ch0 = Ok(30.0) dB (range -13..30)
+  part "Device Specific" (subunit) 941C7AC0-C559-11D0-8A2B-00A0C9255AC1
+  part "Sample Rate Converter" (subunit) 9DB7B9E0-C555-11D0-8A2B-00A0C9255AC1
+  part "Capture" (connector) FB6C4281-0353-11D1-905F-0000C0CC16BA
+  channel 0: scalar 1.000, 30.00 dB
+Disable_SysFx: Some(0) (1 = enhancements off, None = not set)
+shared mix format: 48000 Hz, 2 ch, 32 bit float
+ERROR: 0x8889000A

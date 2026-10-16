@@ -1,0 +1,2 @@
+exclusive: holding 1 ch 16-bit 48 kHz, period 100000 hns
+exclusive: released after 12 s (575040 frames drained)

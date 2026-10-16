@@ -1963,6 +1963,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mic-probe"
+version = "0.2.0"
+dependencies = [
+ "windows 0.58.0",
+]
+
+[[package]]
 name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

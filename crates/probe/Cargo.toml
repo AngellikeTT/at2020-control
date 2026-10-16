@@ -1,0 +1,14 @@
+[package]
+name = "mic-probe"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Standalone WASAPI shared-mode capture probe: endpoint state plus peak/RMS/SILENT-flag statistics"
+publish = false
+
+[[bin]]
+name = "mic-probe"
+path = "src/main.rs"
+
+[dependencies]
+windows.workspace = true
