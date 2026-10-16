@@ -47,6 +47,12 @@ fn main() {
             }
             "--raw" => raw = true,
             "--roundtrip" => roundtrip = true,
+            "--render-sessions" => {
+                // Who is playing into render endpoints whose name matches `want`.
+                // SAFETY: COM calls on this thread after CoInitializeEx.
+                unsafe { render_sessions(&want) };
+                std::process::exit(0);
+            }
             "--hold-exclusive" => {
                 i += 1;
                 hold = args.get(i).and_then(|s| s.parse().ok());
@@ -164,6 +170,26 @@ unsafe fn hold_exclusive(want: &str, secs: f64) -> windows::core::Result<()> {
     c.Stop()?;
     println!("exclusive: released after {secs} s ({frames_total} frames drained)");
     Ok(())
+}
+
+unsafe fn render_sessions(want: &str) {
+    use windows::Win32::Media::Audio::eRender;
+    let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+    let Ok(en) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL)
+    else {
+        return;
+    };
+    let Ok(col) = en.EnumAudioEndpoints(eRender, DEVICE_STATE(1)) else {
+        return;
+    };
+    for i in 0..col.GetCount().unwrap_or(0) {
+        let Ok(d) = col.Item(i) else { continue };
+        let n = name_of(&d);
+        if n.to_lowercase().contains(want) {
+            println!("render endpoint: {n}");
+            list_sessions(&d);
+        }
+    }
 }
 
 /// Walks the endpoint's KS device topology (the driver's view of the hardware) and prints

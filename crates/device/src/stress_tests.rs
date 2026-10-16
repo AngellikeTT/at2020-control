@@ -82,6 +82,46 @@ fn offline_pump_is_deterministic() {
     assert!(a == b, "offline output differs between identical runs");
 }
 
+/// Residual of the exact sine recurrence y[n] = 2cos(w) y[n-1] - y[n-2], relative to
+/// the signal, in dB: about -100 dB or lower for a clean tone, high for glitches/FM.
+fn sine_residual_db(y: &[f32], f: f64, fs: f64) -> f64 {
+    let c = 2.0 * (std::f64::consts::TAU * f / fs).cos();
+    let (mut e, mut s) = (0.0f64, 0.0f64);
+    for w in y.windows(3) {
+        let r = w[2] as f64 - c * w[1] as f64 + w[0] as f64;
+        e += r * r;
+        s += (w[2] as f64).powi(2);
+    }
+    10.0 * (e / s.max(1e-30)).log10()
+}
+
+#[test]
+fn offline_pump_output_is_a_clean_tone() {
+    for (ri, ro) in [(48_000u32, 48_000u32), (44_100, 48_000)] {
+        let x: Vec<f32> = (0..ri as usize * 3)
+            .map(|i| 0.25 * (std::f64::consts::TAU * 1000.0 * i as f64 / ri as f64).sin() as f32)
+            .collect();
+        let y = crate::engine::pump_offline(&x, ri, ro, &ChainParams::flat());
+        let tail = &y[y.len() / 2..];
+        let r = sine_residual_db(tail, 1000.0, ro as f64);
+        // locate the worst spot for diagnosis
+        let c = 2.0 * (std::f64::consts::TAU * 1000.0 / ro as f64).cos();
+        let (mut worst, mut at) = (0.0f64, 0usize);
+        for (i, w) in tail.windows(3).enumerate() {
+            let e = (w[2] as f64 - c * w[1] as f64 + w[0] as f64).abs();
+            if e > worst {
+                worst = e;
+                at = i;
+            }
+        }
+        println!("{ri}->{ro}: residual {r:.1} dB, worst {worst:.2e} at {at}");
+        assert!(
+            r < -80.0,
+            "{ri}->{ro}: residual {r:.1} dB, worst {worst:.2e} at sample {at}"
+        );
+    }
+}
+
 // -------------------------------------------------------- shared state ---
 
 /// UI threads publish parameter sets while the engine is restarted over and over

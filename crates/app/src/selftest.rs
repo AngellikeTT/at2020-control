@@ -1349,19 +1349,23 @@ fn sec_loopback(r: &mut Report, d: &Devices) {
     p.vad_gate.enabled = true;
     p.vad_gate.threshold = 0.3;
     stages.push(("VAD gate", p));
+    // Levels are read from the middle of the steady tone. The capture is aligned by
+    // cross-correlation, which for a multitone is ambiguous by whole common periods
+    // (20 ms); a window running to the very end then included the silent padding and
+    // read several dB low, intermittently. Whole-period offsets do not change a steady
+    // tone's level inside the window.
+    let mid = |x: &[f32]| -> Vec<f32> {
+        let n = x.len();
+        x[n * 2 / 5..n * 17 / 20].to_vec()
+    };
     for (name, p) in stages {
         let sw = run_chain(&p, &base);
-        let sw_levels: Vec<f32> = tones
-            .iter()
-            .map(|&f| amp_db(tail(&sw, 0.4), FS, f))
-            .collect();
+        let sw_mid = mid(&sw);
+        let sw_levels: Vec<f32> = tones.iter().map(|&f| amp_db(&sw_mid, FS, f)).collect();
         match loopback(cin, cout, &sw) {
             Ok((cap, _)) => {
-                let n = cap.len();
-                let cap_levels: Vec<f32> = tones
-                    .iter()
-                    .map(|&f| amp_db(&cap[(n as f32 * 0.4) as usize..], FS, f))
-                    .collect();
+                let cap_mid = mid(&cap);
+                let cap_levels: Vec<f32> = tones.iter().map(|&f| amp_db(&cap_mid, FS, f)).collect();
                 let worst = sw_levels
                     .iter()
                     .zip(&cap_levels)
@@ -1875,6 +1879,21 @@ mod tests {
             (g.suppression_db() - 40.0).abs() < 3.0,
             "gate range -40 dB: {g:?}"
         );
+    }
+
+    /// The engine pipeline (resampler, ring, drift controller) offline must stay clean:
+    /// the self-test's pipeline section, as a unit test.
+    #[test]
+    fn offline_engine_pipeline_is_clean_at_every_rate_pair() {
+        for (ri, ro) in [(48_000u32, 48_000u32), (44_100, 48_000), (48_000, 44_100)] {
+            let t = tone(1000.0, -12.0, 3.0, ri as f64);
+            let y = pump_offline(&t, ri, ro, &ChainParams::flat());
+            let (thd, f) = thdn_refined(tail(&y, 0.5), ro as f64, 1000.0);
+            assert!(
+                thd < -55.0 && (f - 1000.0).abs() < 0.5,
+                "{ri}->{ro}: THD+N {thd:.1} dB, f {f:.3}"
+            );
+        }
     }
 
     #[test]
