@@ -109,6 +109,26 @@ fn utc_now() -> String {
     )
 }
 
+// ---------------------------------------------------------- signal checks --
+
+/// Verdict on audio captured from the microphone: (pass, detail). Exact digital
+/// silence fails: it means the device is sending zeros (hardware/touch mute), which
+/// earlier versions of this test reported as a quiet but passing signal.
+fn mic_signal_check(x: &[f32]) -> (bool, String) {
+    let c = core_dsp::level::classify(x);
+    (c.is_signal(), c.describe())
+}
+
+/// Verdict on the input peak measured while an exclusive-mode stream ran.
+fn exclusive_signal_check(peak: f32) -> (bool, String) {
+    let ok = core_dsp::level::peak_is_signal(peak);
+    let mut d = format!("in peak {:.1} dBFS", lin_to_db(peak));
+    if !ok {
+        d.push_str(" (exact digital silence from the device: hardware/touch mute?)");
+    }
+    (ok, d)
+}
+
 // --------------------------------------------------------------- signals --
 
 fn tone(f: f64, db: f32, secs: f64, fs: f64) -> Vec<f32> {
@@ -1036,6 +1056,12 @@ fn sec_live(r: &mut Report, d: &Devices, secs: u64) {
         "raw mic RMS {rr:.1} dBFS; cable capture RMS {cr:.1} dBFS ({:+.1} dB)",
         cr - rr
     ));
+    let (live, detail) = mic_signal_check(&raw_v);
+    r.check(
+        "microphone delivers a signal (not digital silence)",
+        live,
+        detail,
+    );
     r.check(
         "processed audio arrives at CABLE Output",
         cap_v.len() > 48_000 * (secs as usize / 2) && cr.is_finite(),
@@ -1247,6 +1273,7 @@ fn sec_exclusive(r: &mut Report, d: &Devices) {
             std::thread::sleep(Duration::from_secs(5));
             let unders = shared.underruns.load(Relaxed);
             let fault = shared.take_fault();
+            let inp = shared.meters.in_peak.take();
             let out = shared.meters.out_peak.take();
             let lat = e.latency_ms();
             drop(e);
@@ -1261,10 +1288,11 @@ fn sec_exclusive(r: &mut Report, d: &Devices) {
                 format!("{fault:?}"),
             );
             r.check("exclusive underruns <= 2", unders <= 2, format!("{unders}"));
+            let (flows, detail) = exclusive_signal_check(inp);
             r.check(
-                "signal flows",
-                out.is_finite(),
-                format!("out peak {:.1} dBFS", lin_to_db(out)),
+                "signal flows (input not digital silence)",
+                flows,
+                format!("{detail}; out peak {:.1} dBFS", lin_to_db(out)),
             );
             r.info(format!("estimated latency {lat:.1} ms"));
         }
@@ -1559,4 +1587,27 @@ fn thdn_refined(x: &[f32], fs: f64, f0: f64) -> (f32, f64) {
         n += 1.0;
     }
     (worst as f32, fsum / f64::max(n, 1.0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn digital_silence_fails_the_mic_check() {
+        let (ok, detail) = mic_signal_check(&vec![0.0; 48_000]);
+        assert!(!ok, "exact zeros must not pass: {detail}");
+    }
+
+    #[test]
+    fn room_noise_passes_the_mic_check() {
+        let (ok, detail) = mic_signal_check(&noise(-55.0, 1.0, FS, 7));
+        assert!(ok, "{detail}");
+    }
+
+    #[test]
+    fn exclusive_check_fails_on_silence() {
+        assert!(!exclusive_signal_check(0.0).0);
+        assert!(exclusive_signal_check(db_to_lin(-40.0)).0);
+    }
 }

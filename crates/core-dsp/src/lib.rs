@@ -6,6 +6,7 @@
 
 pub mod denoise;
 pub mod dsp;
+pub mod level;
 pub mod offline;
 pub mod params;
 pub mod resample;

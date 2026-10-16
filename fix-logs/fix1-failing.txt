@@ -1,0 +1,37 @@
+﻿cargo :    Compiling mic-probe v0.2.0 (D:\Mic App - Claude\crates\probe)
+At line:1 char:436
++ ... | Out-Null; cargo test --release --workspace -- selftest::tests 2>&1  ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (   Compiling mi...e\crates\probe):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+   Compiling at2020-control v0.2.0 (D:\Mic App - Claude\crates\app)
+    Finished `release` profile [optimized] target(s) in 7.28s
+     Running unittests src\main.rs (target\release\deps\at2020_control-e36e59cc9b61210d.exe)
+
+running 3 tests
+test selftest::tests::digital_silence_fails_the_mic_check ... FAILED
+test selftest::tests::room_noise_passes_the_mic_check ... ok
+test selftest::tests::exclusive_check_fails_on_silence ... FAILED
+
+failures:
+
+---- selftest::tests::digital_silence_fails_the_mic_check stdout ----
+
+thread 'selftest::tests::digital_silence_fails_the_mic_check' (9408) panicked at crates\app\src\selftest.rs:1562:9:
+exact zeros must not pass: 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- selftest::tests::exclusive_check_fails_on_silence stdout ----
+
+thread 'selftest::tests::exclusive_check_fails_on_silence' (29780) panicked at crates\app\src\selftest.rs:1573:9:
+assertion failed: !exclusive_signal_check(0.0).0
+
+
+failures:
+    selftest::tests::digital_silence_fails_the_mic_check
+    selftest::tests::exclusive_check_fails_on_silence
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p at2020-control --bin at2020-control`
