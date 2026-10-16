@@ -27,6 +27,10 @@ pub struct Options {
     pub out_path: String,
     /// Run the exclusive-mode section even if it pre-empts other apps' streams.
     pub allow_preempt: bool,
+    /// Seconds of real microphone audio for the live noise-suppression check.
+    pub live_noise_secs: u64,
+    /// Only device discovery and the live noise-suppression check.
+    pub live_noise_only: bool,
 }
 
 impl Options {
@@ -38,6 +42,7 @@ impl Options {
                 .cloned()
         };
         let quick = args.iter().any(|a| a == "--quick");
+        let live_noise_only = args.iter().any(|a| a == "--live-noise-only");
         let soak_min: f64 = get("--soak-minutes")
             .and_then(|v| v.parse().ok())
             .unwrap_or(if quick { 0.5 } else { 60.0 });
@@ -46,8 +51,18 @@ impl Options {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(if quick { 8 } else { 30 }),
             soak_secs: (soak_min * 60.0) as u64,
-            out_path: get("--out").unwrap_or_else(|| "SELFTEST_REPORT.md".into()),
+            out_path: get("--out").unwrap_or_else(|| {
+                if live_noise_only {
+                    "LIVE_NOISE_REPORT.md".into()
+                } else {
+                    "SELFTEST_REPORT.md".into()
+                }
+            }),
             allow_preempt: args.iter().any(|a| a == "--allow-preempt"),
+            live_noise_secs: get("--live-noise-seconds")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(if quick { 10 } else { 30 }),
+            live_noise_only,
         }
     }
 }
@@ -151,6 +166,76 @@ fn exclusive_plan(
          stay silent until restarted); close them or pass --allow-preempt",
         busy.join("; ")
     ))
+}
+
+/// Noise suppression measured on real microphone audio: the chain runs offline over the
+/// capture, and RNNoise's own per-frame voice probability splits noise-only frames
+/// from speech frames.
+#[derive(Clone, Debug, Default)]
+struct NoiseSuppression {
+    frames: usize,
+    noise_frames: usize,
+    voice_frames: usize,
+    noise_in_db: f32,
+    noise_out_db: f32,
+    voice_in_db: f32,
+    voice_out_db: f32,
+}
+
+impl NoiseSuppression {
+    fn suppression_db(&self) -> f32 {
+        self.noise_in_db - self.noise_out_db
+    }
+}
+
+fn measure_noise_suppression(x: &[f32], p: &ChainParams) -> NoiseSuppression {
+    let lat = Chain::LATENCY_SAMPLES;
+    let mut chain = Chain::new();
+    let n = x.len() / FRAME * FRAME;
+    let mut y = vec![0.0f32; n + lat + FRAME];
+    let mut vad = Vec::with_capacity(n / FRAME);
+    let mut buf = [0.0f32; FRAME];
+    for (i, fr) in x[..n].chunks_exact(FRAME).enumerate() {
+        buf.copy_from_slice(fr);
+        vad.push(chain.process(&mut buf, p).vad);
+        y[i * FRAME..(i + 1) * FRAME].copy_from_slice(&buf);
+    }
+    let energy = |s: &[f32]| s.iter().map(|v| (*v as f64) * (*v as f64)).sum::<f64>();
+    let skip = (SAMPLE_RATE as usize / FRAME).min(vad.len()); // 1 s: models adapting
+    let (mut ni, mut no, mut vi, mut vo) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+    let mut r = NoiseSuppression {
+        frames: vad.len(),
+        ..Default::default()
+    };
+    for (i, &v) in vad.iter().enumerate().skip(skip) {
+        let a = i * FRAME;
+        if a + lat + FRAME > n {
+            break;
+        }
+        let ein = energy(&x[a..a + FRAME]);
+        let eout = energy(&y[a + lat..a + lat + FRAME]);
+        if v < 0.1 {
+            r.noise_frames += 1;
+            ni += ein;
+            no += eout;
+        } else if v > 0.9 {
+            r.voice_frames += 1;
+            vi += ein;
+            vo += eout;
+        }
+    }
+    let db = |e: f64, frames: usize| {
+        if frames == 0 || e <= 0.0 {
+            -200.0
+        } else {
+            (10.0 * (e / (frames * FRAME) as f64).log10()) as f32
+        }
+    };
+    r.noise_in_db = db(ni, r.noise_frames);
+    r.noise_out_db = db(no, r.noise_frames);
+    r.voice_in_db = db(vi, r.voice_frames);
+    r.voice_out_db = db(vo, r.voice_frames);
+    r
 }
 
 // --------------------------------------------------------------- signals --
@@ -1073,6 +1158,73 @@ fn sec_live(r: &mut Report, d: &Devices, secs: u64) {
     );
 }
 
+fn sec_live_noise(r: &mut Report, d: &Devices, secs: u64) {
+    r.h(&format!(
+        "Live noise suppression ({secs} s of real microphone audio)"
+    ));
+    let Some((_, mic)) = &d.mic else {
+        r.warn("mic missing; skipped");
+        return;
+    };
+    let rec = match Recorder::start(mic) {
+        Ok(x) => x,
+        Err(e) => {
+            r.check("microphone opens", false, format!("{e:#}"));
+            return;
+        }
+    };
+    std::thread::sleep(Duration::from_secs(secs));
+    let x = rec.take_48k();
+    drop(rec);
+    let (live, detail) = mic_signal_check(&x);
+    r.check(
+        "microphone delivers a signal (not digital silence)",
+        live,
+        detail,
+    );
+    if !live {
+        return;
+    }
+    let p = ChainParams::voice();
+    let m = measure_noise_suppression(&x, &p);
+    r.info(format!(
+        "preset Voice, chain run offline on the capture: {} frames, {} noise-only (VAD < 0.1), {} speech (VAD > 0.9)",
+        m.frames, m.noise_frames, m.voice_frames
+    ));
+    if m.noise_frames >= 50 {
+        r.info(format!(
+            "room noise {:.1} dBFS in -> {:.1} dBFS out",
+            m.noise_in_db, m.noise_out_db
+        ));
+        r.check(
+            "noise floor reduced by >= 6 dB",
+            m.suppression_db() >= 6.0,
+            format!("{:.1} dB", m.suppression_db()),
+        );
+    } else {
+        r.warn(format!(
+            "only {} noise-only frames (continuous speech?); suppression not judged",
+            m.noise_frames
+        ));
+    }
+    if m.voice_frames >= 50 {
+        let change = m.voice_out_db - m.voice_in_db;
+        r.check(
+            "speech preserved (level change within -15..+10 dB)",
+            (-15.0..=10.0).contains(&change),
+            format!(
+                "speech {:.1} dBFS in -> {:.1} dBFS out ({change:+.1} dB)",
+                m.voice_in_db, m.voice_out_db
+            ),
+        );
+    } else {
+        r.info(format!(
+            "{} speech frames: nobody spoke, speech preservation not measured",
+            m.voice_frames
+        ));
+    }
+}
+
 fn sec_loopback(r: &mut Report, d: &Devices) {
     r.h("VB-CABLE loopback");
     let (Some(cin), Some(cout)) = (&d.cable_in, &d.cable_out) else {
@@ -1492,9 +1644,12 @@ pub fn run(opts: &Options) -> i32 {
     let started = Instant::now();
     let mut r = Report::default();
     let dev = DevCtl::spawn(Arc::new(|| {}));
+    let full = !opts.live_noise_only;
 
-    sec_dsp(&mut r);
-    sec_pipeline(&mut r);
+    if full {
+        sec_dsp(&mut r);
+        sec_pipeline(&mut r);
+    }
 
     let (devices, st) = sec_devices(&mut r, &dev);
     let before = st.clone();
@@ -1502,7 +1657,7 @@ pub fn run(opts: &Options) -> i32 {
     // the end, on unwind, or by the next launch if this process is killed.
     let id = st.as_ref().and_then(|s| s.selected_id.clone());
     let mut journal = match (&id, device::restore::default_journal_path()) {
-        (Some(id), Some(path)) if st.as_ref().is_some_and(|s| s.has_endpoint) => {
+        (Some(id), Some(path)) if full && st.as_ref().is_some_and(|s| s.has_endpoint) => {
             match device::restore::Journal::begin(&path, device::restore::CoreAudio, id) {
                 Ok(j) => Some(j),
                 Err(e) => {
@@ -1518,11 +1673,16 @@ pub fn run(opts: &Options) -> i32 {
     if let (Some(s), Some(_)) = (&st, &journal) {
         sec_volume(&mut r, &dev, s);
     }
-    sec_hotplug(&mut r, &dev, &devices);
-    sec_live(&mut r, &devices, opts.live_secs);
-    sec_loopback(&mut r, &devices);
-    sec_exclusive(&mut r, &devices, opts.allow_preempt);
-    sec_soak(&mut r, &devices, opts.soak_secs);
+    if full {
+        sec_hotplug(&mut r, &dev, &devices);
+        sec_live(&mut r, &devices, opts.live_secs);
+    }
+    sec_live_noise(&mut r, &devices, opts.live_noise_secs);
+    if full {
+        sec_loopback(&mut r, &devices);
+        sec_exclusive(&mut r, &devices, opts.allow_preempt);
+        sec_soak(&mut r, &devices, opts.soak_secs);
+    }
 
     // Final verification that nothing was left changed.
     r.h("System state restored");
@@ -1596,7 +1756,15 @@ pub fn run(opts: &Options) -> i32 {
     }
 
     let mut out = String::new();
-    let _ = writeln!(out, "# SELFTEST REPORT\n");
+    let _ = writeln!(
+        out,
+        "# {}\n",
+        if full {
+            "SELFTEST REPORT"
+        } else {
+            "LIVE NOISE SUPPRESSION REPORT"
+        }
+    );
     let _ = writeln!(
         out,
         "Generated {} - run time {:.1} min - {} passed, {} failed, {} warnings\n",
@@ -1685,6 +1853,28 @@ mod tests {
         assert!(exclusive_plan(&idle, false).is_ok());
         let busy = vec![("CABLE Input".to_string(), vec![vm()])];
         assert!(exclusive_plan(&busy, true).is_ok());
+    }
+
+    /// The measurement against chain behaviour that is known exactly: a limiter-only
+    /// chain leaves noise unchanged (alignment and frame selection are right), and noise
+    /// below the gate threshold is cut by the gate's range.
+    #[test]
+    fn noise_suppression_measurement_is_calibrated() {
+        let x = noise(-60.0, 4.0, FS, 11);
+        let flat = measure_noise_suppression(&x, &ChainParams::flat());
+        assert!(flat.noise_frames > 200, "{flat:?}");
+        assert!((flat.noise_in_db + 60.0).abs() < 1.0, "{flat:?}");
+        assert!(flat.suppression_db().abs() < 0.5, "{flat:?}");
+
+        let mut gated = ChainParams::flat();
+        gated.gate.enabled = true;
+        gated.gate.threshold_db = -40.0;
+        gated.gate.range_db = -40.0;
+        let g = measure_noise_suppression(&x, &gated);
+        assert!(
+            (g.suppression_db() - 40.0).abs() < 3.0,
+            "gate range -40 dB: {g:?}"
+        );
     }
 
     #[test]
