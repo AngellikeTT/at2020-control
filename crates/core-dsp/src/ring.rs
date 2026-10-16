@@ -1,7 +1,8 @@
 //! Lock-free single-producer / single-consumer ring buffer of `f32`.
 //! Safe code only: samples are stored as `AtomicU32` bit patterns.
 
-use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering::*};
+use crate::sync::{AtomicU32, AtomicUsize};
+use std::sync::atomic::Ordering::*;
 
 pub struct Ring {
     buf: Box<[AtomicU32]>,
@@ -26,10 +27,17 @@ impl Ring {
         self.mask + 1
     }
 
+    /// Samples queued. Safe to call from any thread, including a third one that is
+    /// neither producer nor consumer (meters, self-test).
     pub fn len(&self) -> usize {
-        self.head
-            .load(Acquire)
-            .wrapping_sub(self.tail.load(Acquire))
+        // `tail` first: the consumer only stores a tail it has seen `head` reach, and the
+        // Acquire load of that tail makes that head visible, so the `head` read next is
+        // never behind it and the difference cannot wrap. (Reading `head` first let a
+        // push + pop slip in between and returned usize::MAX.) The producer may refill
+        // in between as well, so clamp to the capacity.
+        let tail = self.tail.load(Acquire);
+        let head = self.head.load(Acquire);
+        head.wrapping_sub(tail).min(self.capacity())
     }
 
     pub fn is_empty(&self) -> bool {
@@ -68,9 +76,48 @@ impl Ring {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(loom)))]
 mod tests {
     use super::*;
+
+    /// A third thread (UI meter, self-test) reading the fill level while audio flows
+    /// must always see a value within 0..=capacity.
+    #[test]
+    fn len_seen_by_an_observer_is_bounded() {
+        use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+        use std::sync::Arc;
+        let r = Arc::new(Ring::new(64));
+        let done = Arc::new(AtomicBool::new(false));
+        let p = {
+            let (r, done) = (r.clone(), done.clone());
+            std::thread::spawn(move || {
+                let x = [0.25f32; 7];
+                while !done.load(Relaxed) {
+                    r.push(&x);
+                }
+            })
+        };
+        let c = {
+            let (r, done) = (r.clone(), done.clone());
+            std::thread::spawn(move || {
+                let mut b = [0.0f32; 5];
+                while !done.load(Relaxed) {
+                    r.pop(&mut b);
+                }
+            })
+        };
+        let mut worst = 0usize;
+        for _ in 0..3_000_000 {
+            worst = worst.max(r.len());
+        }
+        done.store(true, Relaxed);
+        p.join().unwrap();
+        c.join().unwrap();
+        assert!(
+            worst <= r.capacity(),
+            "observer saw len {worst} > capacity 64"
+        );
+    }
 
     #[test]
     fn wraps_and_preserves_order() {
@@ -126,5 +173,74 @@ mod tests {
             }
         }
         t.join().unwrap();
+    }
+}
+
+#[cfg(all(test, loom))]
+mod loom_tests {
+    use super::*;
+    use loom::sync::Arc;
+    use loom::thread;
+
+    /// One push and one pop race a third thread reading `len()`.
+    #[test]
+    fn loom_observer_len_never_exceeds_capacity() {
+        loom::model(|| {
+            let r = Arc::new(Ring::new(2));
+            let p = {
+                let r = r.clone();
+                thread::spawn(move || {
+                    r.push(&[1.0]);
+                })
+            };
+            let c = {
+                let r = r.clone();
+                thread::spawn(move || {
+                    let mut b = [0.0f32; 1];
+                    if r.pop(&mut b) == 1 {
+                        assert_eq!(b[0], 1.0, "a popped sample is the pushed one");
+                    }
+                })
+            };
+            let o = {
+                let r = r.clone();
+                thread::spawn(move || {
+                    let seen = r.len();
+                    assert!(seen <= r.capacity(), "observer saw len {seen}");
+                })
+            };
+            p.join().unwrap();
+            c.join().unwrap();
+            o.join().unwrap();
+            assert!(r.len() <= 1);
+        });
+    }
+
+    /// Plain SPSC hand-off: every value pushed is popped once, in order, intact.
+    #[test]
+    fn loom_spsc_transfers_in_order() {
+        loom::model(|| {
+            let r = Arc::new(Ring::new(2));
+            let p = {
+                let r = r.clone();
+                thread::spawn(move || {
+                    let src = [0.5f32, -0.25, 0.125];
+                    let mut i = 0;
+                    while i < src.len() {
+                        i += r.push(&src[i..]);
+                        thread::yield_now();
+                    }
+                })
+            };
+            let mut out = Vec::new();
+            let mut b = [0.0f32; 2];
+            while out.len() < 3 {
+                let n = r.pop(&mut b);
+                out.extend_from_slice(&b[..n]);
+                thread::yield_now();
+            }
+            p.join().unwrap();
+            assert_eq!(out, vec![0.5, -0.25, 0.125]);
+        });
     }
 }
