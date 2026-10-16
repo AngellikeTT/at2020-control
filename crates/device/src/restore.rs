@@ -323,6 +323,26 @@ impl EndpointControl for CoreAudio {
     }
 }
 
+/// Id of the default endpoint (console role) for capture or render.
+pub fn default_endpoint_id(capture: bool) -> Result<String> {
+    on_com_thread(move || {
+        use windows::Win32::Media::Audio::{
+            eCapture, eConsole, eRender, IMMDeviceEnumerator, MMDeviceEnumerator,
+        };
+        use windows::Win32::System::Com::{CoCreateInstance, CoTaskMemFree, CLSCTX_ALL};
+        // SAFETY: COM calls on a thread initialised by `on_com_thread`.
+        unsafe {
+            let en: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
+            let d =
+                en.GetDefaultAudioEndpoint(if capture { eCapture } else { eRender }, eConsole)?;
+            let p = d.GetId()?;
+            let s = p.to_string().unwrap_or_default();
+            CoTaskMemFree(Some(p.0 as *const core::ffi::c_void));
+            Ok(s)
+        }
+    })
+}
+
 /// Startup hook for the app: restores whatever a crashed or killed earlier run left
 /// changed. Returns a human-readable summary for the log, or None if nothing was pending.
 pub fn recover_at_startup() -> Option<std::result::Result<String, String>> {

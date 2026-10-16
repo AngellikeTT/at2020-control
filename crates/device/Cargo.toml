@@ -16,3 +16,8 @@ tracing.workspace = true
 hound.workspace = true
 windows.workspace = true
 windows-core.workspace = true
+
+[dev-dependencies]
+# Tests that touch real audio devices, system state or saturate the CPU run one at a
+# time (#[serial(system)]); pure tests stay fully parallel.
+serial_test = "3.2"

@@ -1,0 +1,90 @@
+﻿cargo :     Updating crates.io index
+At line:1 char:396
++ ... "; cargo fmt --all; cargo test --release -p device --lib 2>&1 | Tee-O ...
++                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (    Updating crates.io index:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+     Locking 2 packages to highest compatible versions
+      Adding serial_test v3.5.0 (available: v4.0.1)
+      Adding serial_test_derive v3.5.0
+ Downloading crates ...
+  Downloaded serial_test v3.5.0
+  Downloaded serial_test_derive v3.5.0
+   Compiling winapi v0.3.9
+   Compiling slab v0.4.12
+   Compiling futures-core v0.3.34
+   Compiling futures-task v0.3.34
+   Compiling syn v3.0.9
+   Compiling termcolor v1.4.1
+   Compiling crossbeam-utils v0.8.23
+   Compiling serial_test_derive v3.5.0
+   Compiling log v0.4.34
+   Compiling serde_json v1.0.154
+   Compiling futures-util v0.3.34
+   Compiling triple_buffer v8.1.1
+   Compiling atty v0.2.14
+   Compiling clap v3.2.25
+   Compiling serde_derive v1.0.229
+   Compiling futures-executor v0.3.34
+   Compiling serial_test v3.5.0
+   Compiling serde v1.0.229
+   Compiling num-complex v0.4.6
+   Compiling rustfft v6.4.1
+   Compiling realfft v3.5.0
+   Compiling easyfft v0.4.2
+   Compiling nnnoiseless v0.5.2
+   Compiling core-dsp v0.2.0 (D:\Mic App - Claude\crates\core-dsp)
+   Compiling device v0.2.0 (D:\Mic App - Claude\crates\device)
+warning: unused variable: `total`
+   --> crates\device\src\rtsim.rs:165:9
+    |
+165 |     let total = Duration::from_secs_f64(cfg.secs);
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_total`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `device` (lib test) generated 1 warning (run `cargo fix --lib -p device --tests` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 25.75s
+     Running unittests src\lib.rs (target\release\deps\device-c5c0fcad244fbcd3.exe)
+
+running 24 tests
+test guard::tests::a_normal_stop_reports_nothing ... ok
+test guard::tests::a_panicking_callback_is_contained_and_silenced ... ok
+test guard::tests::a_panicking_capture_callback_is_contained ... ok
+test guard::tests::a_panicking_stream_body_is_stopped_and_reported ... ok
+test guard::tests::on_drop_runs_while_unwinding ... ok
+test sessions::tests::only_other_running_streams_are_preempted ... ok
+test guard::tests::unsigned_output_is_silenced_at_mid_scale ... ok
+test guard::tests::an_erroring_stream_is_stopped_and_reported ... ok
+test sessions::tests::nothing_to_preempt_when_alone ... ok
+test wasapi_excl::tests::integer_conversions_round_trip ... ok
+test wasapi_excl::tests::wave_format_fields_are_consistent ... ok
+test restore::tests::changed_default_devices_are_reported ... ok
+test restore::tests::a_failed_restore_keeps_the_journal_for_later ... ok
+test restore::tests::journal_is_on_disk_before_the_first_change ... ok
+test restore::tests::a_panicking_run_restores_on_unwind ... ok
+test restore::tests::a_killed_run_is_restored_on_the_next_launch ... ok
+test restore::tests::begin_recovers_a_stale_journal_before_snapshotting ... ok
+test stress_tests::params_survive_concurrent_writers_and_hot_swaps ... ok
+test stress_tests::faults_are_delivered_under_contention ... ok
+test stress_tests::devctl_survives_concurrent_hot_swap_commands ... FAILED
+test stress_tests::journal_restores_the_real_default_microphone ... ok
+test stress_tests::rt_resampling_path_under_load_with_slow_clock ... ok
+test stress_tests::exclusive_stream_is_released_on_drop_and_on_panic ... ok
+test stress_tests::rt_no_xruns_or_glitches_with_cpu_saturated ... ok
+
+failures:
+
+---- stress_tests::devctl_survives_concurrent_hot_swap_commands stdout ----
+
+thread 'stress_tests::devctl_survives_concurrent_hot_swap_commands' (23804) panicked at crates\device\src\stress_tests.rs:215:5:
+shutdown hung
+
+
+failures:
+    stress_tests::devctl_survives_concurrent_hot_swap_commands
+
+test result: FAILED. 23 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 33.54s
+
+error: test failed, to rerun pass `-p device --lib`

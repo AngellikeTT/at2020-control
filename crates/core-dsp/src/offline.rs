@@ -157,7 +157,8 @@ mod tests {
 
     #[test]
     fn wav_round_trip_24_bit() {
-        let dir = std::env::temp_dir().join("at2020_cli_test");
+        // Per process: concurrent test runs must not share (and race on) one file.
+        let dir = std::env::temp_dir().join(format!("at2020_cli_test_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join("rt.wav");
         let x = tone(440.0, -6.0, 4800, 48_000.0);

@@ -9,7 +9,10 @@ pub mod engine;
 pub mod guard;
 pub mod recorder;
 pub mod restore;
+pub mod rtsim;
 pub mod sessions;
 pub mod shared;
+#[cfg(test)]
+mod stress_tests;
 pub mod wasapi_excl;
 pub mod winsys;

@@ -1,0 +1,96 @@
+﻿cargo :    Compiling core-dsp v0.2.0 (D:\Mic App - Claude\crates\core-dsp)
+At line:1 char:379
++ ... $env:PATH"; cargo test --release --workspace -- --nocapture stress_te ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (   Compiling co...rates\core-dsp):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+   Compiling serial_test v3.5.0
+   Compiling device v0.2.0 (D:\Mic App - Claude\crates\device)
+   Compiling at2020-control v0.2.0 (D:\Mic App - Claude\crates\app)
+    Finished `release` profile [optimized] target(s) in 18.75s
+     Running unittests src\main.rs (target\release\deps\at2020_control-8f5667f50866f8e7.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\release\deps\core_dsp-153558b3c0cb40cd.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 40 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (target\release\deps\device-5a18881333a4622f.exe)
+
+running 7 tests
+test stress_tests::params_survive_concurrent_writers_and_hot_swaps ... ok
+test stress_tests::faults_are_delivered_under_contention ... ok
+test stress_tests::devctl_survives_concurrent_hot_swap_commands ... ok
+48k->48k +1000ppm, load, params: SimReport {
+    audio_core: 0,
+    load_threads: 19,
+    mmcss_threads: 2,
+    underruns: 0,
+    max_jump: 0.043670263,
+    jump_limit: 0.05878148,
+    max_jump_at_s: 4.672229166666667,
+    freq_hz: 998.9417803709703,
+    expected_hz: 999.0009990009991,
+    fill_min: 841,
+    fill_max: 1395,
+    final_adj_ppm: -1139.5653964579121,
+    worst_late_ms: 0.567,
+    param_changes: 160,
+}
+test stress_tests::rt_no_xruns_or_glitches_with_cpu_saturated ... ok
+skipped: wallpaper64.exe (pid 23212) streaming to CABLE Input (VB-Audio Virtual Cable)
+test stress_tests::exclusive_stream_is_released_on_drop_and_on_panic ... ok
+test stress_tests::journal_restores_the_real_default_microphone ... ok
+44.1k->48k -500ppm, load: SimReport {
+    audio_core: 0,
+    load_threads: 19,
+    mmcss_threads: 2,
+    underruns: 0,
+    max_jump: 0.03269374,
+    jump_limit: 0.041906152,
+    max_jump_at_s: 5.993895833333333,
+    freq_hz: 998.6038181762647,
+    expected_hz: 1000.5002501250625,
+    fill_min: 533,
+    fill_max: 1480,
+    final_adj_ppm: -455.4587587712305,
+    worst_late_ms: 0.609,
+    param_changes: 0,
+}
+
+thread 'stress_tests::rt_resampling_path_under_load_with_slow_clock' (13236) panicked at 
+crates\device\src\stress_tests.rs:20:5:
+44.1k->48k -500ppm, load: ["pitch 998.604 Hz, expected 1000.500 Hz (drift controller)"]
+SimReport {
+    audio_core: 0,
+    load_threads: 19,
+    mmcss_threads: 2,
+    underruns: 0,
+    max_jump: 0.03269374,
+    jump_limit: 0.041906152,
+    max_jump_at_s: 5.993895833333333,
+    freq_hz: 998.6038181762647,
+    expected_hz: 1000.5002501250625,
+    fill_min: 533,
+    fill_max: 1480,
+    final_adj_ppm: -455.4587587712305,
+    worst_late_ms: 0.609,
+    param_changes: 0,
+}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test stress_tests::rt_resampling_path_under_load_with_slow_clock ... FAILED
+
+failures:
+
+failures:
+    stress_tests::rt_resampling_path_under_load_with_slow_clock
+
+test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 17 filtered out; finished in 14.23s
+
+error: test failed, to rerun pass `-p device --lib`

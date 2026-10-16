@@ -1,0 +1,730 @@
+﻿
+running 24 tests
+device-5a18881333a4622f.exe : 
+At line:1 char:665
++ ... $i=1; $i -le 8; $i++) { $o = & $exe.FullName --nocapture 2>&1 | Out-S ...
++                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+thread 'guard::tests::on_drop_runs_while_unwinding' (5824) panicked at crates\device\src\guard.rs:256:13:
+x
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'guard::tests::a_panicking_capture_callback_is_contained' (9160) panicked at crates\device\src\guard.rs:240:17:
+chain state corrupted
+
+thread 'guard::tests::a_panicking_stream_body_is_stopped_and_reported' (3392) panicked at 
+crates\device\src\guard.rs:147:25:
+bug in the processing chain
+
+thread 'guard::tests::unsigned_output_is_silenced_at_mid_scale' (5632) panicked at crates\device\src\guard.rs:227:58:
+boom
+
+thread 'guard::tests::a_panicking_callback_is_contained_and_silenced' (32548) panicked at 
+crates\device\src\guard.rs:200:21:
+index out of bounds
+test guard::tests::a_normal_stop_reports_nothing ... ok
+test guard::tests::on_drop_runs_while_unwinding ... ok
+test guard::tests::a_panicking_capture_callback_is_contained ... ok
+test guard::tests::a_panicking_stream_body_is_stopped_and_reported ... ok
+test guard::tests::an_erroring_stream_is_stopped_and_reported ... ok
+test guard::tests::unsigned_output_is_silenced_at_mid_scale ... ok
+test guard::tests::a_panicking_callback_is_contained_and_silenced ... ok
+test sessions::tests::nothing_to_preempt_when_alone ... ok
+test sessions::tests::only_other_running_streams_are_preempted ... ok
+test wasapi_excl::tests::integer_conversions_round_trip ... ok
+test wasapi_excl::tests::wave_format_fields_are_consistent ... ok
+
+thread 'restore::tests::a_panicking_run_restores_on_unwind' (30384) panicked at crates\device\src\restore.rs:490:13:
+test body failed
+test restore::tests::a_killed_run_is_restored_on_the_next_launch ... ok
+test restore::tests::a_panicking_run_restores_on_unwind ... ok
+test restore::tests::changed_default_devices_are_reported ... ok
+test restore::tests::a_failed_restore_keeps_the_journal_for_later ... ok
+test restore::tests::journal_is_on_disk_before_the_first_change ... ok
+test restore::tests::begin_recovers_a_stale_journal_before_snapshotting ... ok
+test stress_tests::params_survive_concurrent_writers_and_hot_swaps ... ok
+test stress_tests::faults_are_delivered_under_contention ... ok
+test stress_tests::journal_restores_the_real_default_microphone ... ok
+48k->48k +1000ppm, load, params: SimReport {
+    audio_core: 0,
+    load_threads: 19,
+    mmcss_threads: 2,
+    underruns: 0,
+    max_jump: 0.043682046,
+    jump_limit: 0.05878148,
+    max_jump_at_s: 2.230354166666667,
+    freq_hz: 998.9521135686058,
+    expected_hz: 999.0009990009991,
+    fill_min: 844,
+    fill_max: 915,
+    final_adj_ppm: -1140.5119353909704,
+    worst_late_ms: 1.108,
+    param_changes: 158,
+    trace: [
+        (
+            0.25,
+            951,
+            -1.1569491224097697,
+        ),
+        (
+            0.5,
+            939,
+            -11.00795633292261,
+        ),
+        (
+            0.75,
+            927,
+            -35.065866698321635,
+        ),
+        (
+            1.0,
+            915,
+            -74.68548985826834,
+        ),
+        (
+            1.25,
+            905,
+            -128.62134662085558,
+        ),
+        (
+            1.5,
+            895,
+            -194.328544844348,
+        ),
+        (
+            1.75,
+            885,
+            -268.95727431299576,
+        ),
+        (
+            2.0,
+            877,
+            -349.5780678593522,
+        ),
+        (
+            2.01,
+            876,
+            -352.88805029731634,
+        ),
+        (
+            2.25,
+            870,
+            -433.4089653373465,
+        ),
+        (
+            2.26,
+            869,
+            -436.79534700370414,
+        ),
+        (
+            2.5,
+            864,
+            -518.0153710529728,
+        ),
+        (
+            2.51,
+            863,
+            -521.3849824274005,
+        ),
+        (
+            2.75,
+            858,
+            -601.2371751501836,
+        ),
+        (
+            2.76,
+            858,
+            -604.5110171382781,
+        ),
+        (
+            3.0,
+            854,
+            -681.218018024567,
+        ),
+        (
+            3.01,
+            853,
+            -684.3301352630091,
+        ),
+        (
+            3.25,
+            851,
+            -756.5664230396555,
+        ),
+        (
+            3.26,
+            850,
+            -759.4664755297034,
+        ),
+        (
+            3.5,
+            848,
+            -826.0983456644349,
+        ),
+        (
+            3.51,
+            848,
+            -828.7476260212798,
+        ),
+        (
+            3.75,
+            847,
+            -888.9896626849393,
+        ),
+        (
+            3.76,
+            846,
+            -891.3595523331447,
+        ),
+        (
+            4.0,
+            846,
+            -944.7189046116337,
+        ),
+        (
+            4.01,
+            845,
+            -946.7955975382487,
+        ),
+        (
+            4.25,
+            845,
+            -993.0250775915262,
+        ),
+        (
+            4.26,
+            845,
+            -994.8037041092683,
+        ),
+        (
+            4.5,
+            845,
+            -1033.839042079453,
+        ),
+        (
+            4.51,
+            845,
+            -1035.3187090552135,
+        ),
+        (
+            4.75,
+            846,
+            -1067.3943322523733,
+        ),
+        (
+            4.76,
+            846,
+            -1068.5875469597129,
+        ),
+        (
+            5.0,
+            847,
+            -1093.9343690010728,
+        ),
+        (
+            5.01,
+            847,
+            -1094.859207142006,
+        ),
+        (
+            5.25,
+            848,
+            -1113.968283211004,
+        ),
+        (
+            5.26,
+            848,
+            -1114.6425834934405,
+        ),
+        (
+            5.5,
+            850,
+            -1128.0007031106572,
+        ),
+        (
+            5.51,
+            849,
+            -1128.4460557501689,
+        ),
+        (
+            5.75,
+            851,
+            -1136.6394455675502,
+        ),
+        (
+            5.76,
+            851,
+            -1136.8836295153071,
+        ),
+        (
+            6.0,
+            853,
+            -1140.5119353909704,
+        ),
+    ],
+    capture_busy_ms: 0.2061,
+    render_busy_ms: 0.9824,
+    capture_gap_ms: 10.328000000000001,
+}
+test stress_tests::rt_no_xruns_or_glitches_with_cpu_saturated ... ok
+44.1k->48k -500ppm, load: SimReport {
+    audio_core: 0,
+    load_threads: 19,
+    mmcss_threads: 2,
+    underruns: 1,
+    max_jump: 0.032727674,
+    jump_limit: 0.041906152,
+    max_jump_at_s: 5.9736666666666665,
+    freq_hz: 1000.5074049172134,
+    expected_hz: 1000.5002501250625,
+    fill_min: 978,
+    fill_max: 1496,
+    final_adj_ppm: 569.7798133515566,
+    worst_late_ms: 52.08,
+    param_changes: 0,
+    trace: [
+        (
+            0.25,
+            962,
+            115.91656143811767,
+        ),
+        (
+            0.5,
+            967,
+            93.21842601398652,
+        ),
+        (
+            0.75,
+            972,
+            81.61679352145765,
+        ),
+        (
+            1.0,
+            977,
+            80.7955158617788,
+        ),
+        (
+            1.25,
+            982,
+            89.71357863756631,
+        ),
+        (
+            1.5,
+            987,
+            106.98690458846661,
+        ),
+        (
+            1.75,
+            991,
+            131.06550507500074,
+        ),
+        (
+            2.0,
+            996,
+            160.3647471016948,
+        ),
+        (
+            2.01,
+            997,
+            161.62449800086992,
+        ),
+        (
+            2.25,
+            1000,
+            193.45272861498222,
+        ),
+        (
+            2.26,
+            1001,
+            194.83572166655506,
+        ),
+        (
+            2.5,
+            1003,
+            228.93797355906247,
+        ),
+        (
+            2.51,
+            1004,
+            230.3880449199406,
+        ),
+        (
+            2.75,
+            1006,
+            265.5655821782027,
+        ),
+        (
+            2.76,
+            1007,
+            267.0365507246359,
+        ),
+        (
+            3.0,
+            1009,
+            302.23011564457624,
+        ),
+        (
+            3.01,
+            1010,
+            303.6851710969929,
+        ),
+        (
+            3.25,
+            1011,
+            338.03675050392104,
+        ),
+        (
+            3.26,
+            1012,
+            339.4387330032311,
+        ),
+        (
+            3.5,
+            1013,
+            372.2347224071911,
+        ),
+        (
+            3.51,
+            1013,
+            373.5606249109662,
+        ),
+        (
+            3.75,
+            1014,
+            404.21422490356395,
+        ),
+        (
+            3.76,
+            1015,
+            405.4397177530653,
+        ),
+        (
+            4.0,
+            1015,
+            433.5784985758902,
+        ),
+        (
+            4.01,
+            1016,
+            434.6928796981438,
+        ),
+        (
+            4.25,
+            1015,
+            459.9737023103029,
+        ),
+        (
+            4.26,
+            1016,
+            460.9637144622803,
+        ),
+        (
+            4.5,
+            1016,
+            488.74850814308553,
+        ),
+        (
+            4.51,
+            1017,
+            490.4404939940851,
+        ),
+        (
+            4.75,
+            1016,
+            522.9100844119897,
+        ),
+        (
+            4.76,
+            1016,
+            523.9740951131851,
+        ),
+        (
+            5.0,
+            1015,
+            544.3513776594214,
+        ),
+        (
+            5.01,
+            1016,
+            545.0165738172791,
+        ),
+        (
+            5.25,
+            1015,
+            557.6094035183629,
+        ),
+        (
+            5.26,
+            1015,
+            558.010107147305,
+        ),
+        (
+            5.5,
+            1014,
+            565.272744927412,
+        ),
+        (
+            5.51,
+            1015,
+            565.4872726116289,
+        ),
+        (
+            5.75,
+            1013,
+            568.971799258046,
+        ),
+        (
+            5.76,
+            1014,
+            569.0533303316954,
+        ),
+        (
+            6.0,
+            1012,
+            569.7798133515566,
+        ),
+    ],
+    capture_busy_ms: 0.803,
+    render_busy_ms: 0.0218,
+    capture_gap_ms: 10.297,
+}
+
+thread 'stress_tests::rt_resampling_path_under_load_with_slow_clock' (3464) panicked at 
+crates\device\src\stress_tests.rs:20:5:
+44.1k->48k -500ppm, load: ["1 underrun(s)"]
+SimReport {
+    audio_core: 0,
+    load_threads: 19,
+    mmcss_threads: 2,
+    underruns: 1,
+    max_jump: 0.032727674,
+    jump_limit: 0.041906152,
+    max_jump_at_s: 5.9736666666666665,
+    freq_hz: 1000.5074049172134,
+    expected_hz: 1000.5002501250625,
+    fill_min: 978,
+    fill_max: 1496,
+    final_adj_ppm: 569.7798133515566,
+    worst_late_ms: 52.08,
+    param_changes: 0,
+    trace: [
+        (
+            0.25,
+            962,
+            115.91656143811767,
+        ),
+        (
+            0.5,
+            967,
+            93.21842601398652,
+        ),
+        (
+            0.75,
+            972,
+            81.61679352145765,
+        ),
+        (
+            1.0,
+            977,
+            80.7955158617788,
+        ),
+        (
+            1.25,
+            982,
+            89.71357863756631,
+        ),
+        (
+            1.5,
+            987,
+            106.98690458846661,
+        ),
+        (
+            1.75,
+            991,
+            131.06550507500074,
+        ),
+        (
+            2.0,
+            996,
+            160.3647471016948,
+        ),
+        (
+            2.01,
+            997,
+            161.62449800086992,
+        ),
+        (
+            2.25,
+            1000,
+            193.45272861498222,
+        ),
+        (
+            2.26,
+            1001,
+            194.83572166655506,
+        ),
+        (
+            2.5,
+            1003,
+            228.93797355906247,
+        ),
+        (
+            2.51,
+            1004,
+            230.3880449199406,
+        ),
+        (
+            2.75,
+            1006,
+            265.5655821782027,
+        ),
+        (
+            2.76,
+            1007,
+            267.0365507246359,
+        ),
+        (
+            3.0,
+            1009,
+            302.23011564457624,
+        ),
+        (
+            3.01,
+            1010,
+            303.6851710969929,
+        ),
+        (
+            3.25,
+            1011,
+            338.03675050392104,
+        ),
+        (
+            3.26,
+            1012,
+            339.4387330032311,
+        ),
+        (
+            3.5,
+            1013,
+            372.2347224071911,
+        ),
+        (
+            3.51,
+            1013,
+            373.5606249109662,
+        ),
+        (
+            3.75,
+            1014,
+            404.21422490356395,
+        ),
+        (
+            3.76,
+            1015,
+            405.4397177530653,
+        ),
+        (
+            4.0,
+            1015,
+            433.5784985758902,
+        ),
+        (
+            4.01,
+            1016,
+            434.6928796981438,
+        ),
+        (
+            4.25,
+            1015,
+            459.9737023103029,
+        ),
+        (
+            4.26,
+            1016,
+            460.9637144622803,
+        ),
+        (
+            4.5,
+            1016,
+            488.74850814308553,
+        ),
+        (
+            4.51,
+            1017,
+            490.4404939940851,
+        ),
+        (
+            4.75,
+            1016,
+            522.9100844119897,
+        ),
+        (
+            4.76,
+            1016,
+            523.9740951131851,
+        ),
+        (
+            5.0,
+            1015,
+            544.3513776594214,
+        ),
+        (
+            5.01,
+            1016,
+            545.0165738172791,
+        ),
+        (
+            5.25,
+            1015,
+            557.6094035183629,
+        ),
+        (
+            5.26,
+            1015,
+            558.010107147305,
+        ),
+        (
+            5.5,
+            1014,
+            565.272744927412,
+        ),
+        (
+            5.51,
+            1015,
+            565.4872726116289,
+        ),
+        (
+            5.75,
+            1013,
+            568.971799258046,
+        ),
+        (
+            5.76,
+            1014,
+            569.0533303316954,
+        ),
+        (
+            6.0,
+            1012,
+            569.7798133515566,
+        ),
+    ],
+    capture_busy_ms: 0.803,
+    render_busy_ms: 0.0218,
+    capture_gap_ms: 10.297,
+}
+test stress_tests::rt_resampling_path_under_load_with_slow_clock ... FAILED
+test stress_tests::devctl_survives_concurrent_hot_swap_commands ... ok
+skipped: wallpaper64.exe (pid 23212) streaming to CABLE Input (VB-Audio Virtual Cable)
+test stress_tests::exclusive_stream_is_released_on_drop_and_on_panic ... ok
+
+failures:
+
+failures:
+    stress_tests::rt_resampling_path_under_load_with_slow_clock
+
+test result: FAILED. 23 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.22s
+
+

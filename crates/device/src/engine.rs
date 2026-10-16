@@ -30,9 +30,9 @@ use triple_buffer::Output;
 use crate::guard::GuardedCallback;
 use crate::wasapi_excl::{self, ExclusiveStream, Fault};
 
-const RING_CAP: usize = 1 << 16; // ~1.36 s @ 48 kHz
+pub(crate) const RING_CAP: usize = 1 << 16; // ~1.36 s @ 48 kHz
 /// Target ring fill used for drift compensation / underrun protection (~30 ms).
-const TARGET_FILL: usize = 1440;
+pub(crate) const TARGET_FILL: usize = 1440;
 /// Scratch capacity: covers any realistic device period (3 s of 192 kHz audio).
 const SCRATCH: usize = 1 << 19;
 
@@ -355,7 +355,7 @@ struct StreamInfo {
 // ------------------------------------------------------------------ mmcss --
 
 /// Registers the calling thread with MMCSS ("Pro Audio") once. Failure is harmless.
-fn promote_thread(done: &mut bool, shared: &Shared) {
+pub(crate) fn promote_thread(done: &mut bool, shared: &Shared) {
     if *done {
         return;
     }
@@ -422,18 +422,8 @@ fn build_output_exclusive(
         name,
         cfg.sample_rate,
         move |n| {
-            let mut proc = OutputProcessor {
-                ring,
-                rs: Resampler::new(),
-                ch: n.channels as usize,
-                out_rate: n.rate as f64,
-                primed: false,
-                adj: 0.0,
-                fill_avg: TARGET_FILL as f64,
-                is_monitor: false,
-                shared,
-                mmcss: true,
-            };
+            let mut proc = OutputProcessor::new(ring, n.channels as usize, n.rate, false, shared);
+            proc.mmcss = true; // the exclusive stream thread registers itself
             move |d: &mut [f32]| proc.fill(d)
         },
         fault,
@@ -452,7 +442,7 @@ fn build_output_exclusive(
 
 // ------------------------------------------------------------------ input --
 
-struct InputProcessor {
+pub(crate) struct InputProcessor {
     ch: usize,
     step: f64,
     lpf: Option<Biquad>,
@@ -464,11 +454,17 @@ struct InputProcessor {
     shared: Arc<Shared>,
     main: Arc<Ring>,
     mon: Arc<Ring>,
-    mmcss: bool,
+    pub(crate) mmcss: bool,
 }
 
 impl InputProcessor {
-    fn new(rate: u32, ch: usize, main: Arc<Ring>, mon: Arc<Ring>, shared: Arc<Shared>) -> Self {
+    pub(crate) fn new(
+        rate: u32,
+        ch: usize,
+        main: Arc<Ring>,
+        mon: Arc<Ring>,
+        shared: Arc<Shared>,
+    ) -> Self {
         let lpf = if rate > 48_000 {
             Some(Biquad::new(Coeffs::lowpass(
                 rate as f64,
@@ -494,7 +490,7 @@ impl InputProcessor {
         }
     }
 
-    fn process<T: Sample>(&mut self, data: &[T])
+    pub(crate) fn process<T: Sample>(&mut self, data: &[T])
     where
         f32: FromSample<T>,
     {
@@ -634,21 +630,43 @@ where
 
 // ----------------------------------------------------------------- output --
 
-struct OutputProcessor {
+pub(crate) struct OutputProcessor {
     ring: Arc<Ring>,
     rs: Resampler,
     ch: usize,
     out_rate: f64,
     primed: bool,
-    adj: f64,
+    /// Current drift-compensation ratio offset (exposed for the stress tests).
+    pub(crate) adj: f64,
     fill_avg: f64,
     is_monitor: bool,
     shared: Arc<Shared>,
-    mmcss: bool,
+    pub(crate) mmcss: bool,
 }
 
 impl OutputProcessor {
-    fn fill<T>(&mut self, data: &mut [T])
+    pub(crate) fn new(
+        ring: Arc<Ring>,
+        ch: usize,
+        out_rate: u32,
+        is_monitor: bool,
+        shared: Arc<Shared>,
+    ) -> Self {
+        Self {
+            ring,
+            rs: Resampler::new(),
+            ch: ch.max(1),
+            out_rate: out_rate as f64,
+            primed: false,
+            adj: 0.0,
+            fill_avg: TARGET_FILL as f64,
+            is_monitor,
+            shared,
+            mmcss: false,
+        }
+    }
+
+    pub(crate) fn fill<T>(&mut self, data: &mut [T])
     where
         T: Sample + FromSample<f32>,
     {
@@ -722,18 +740,7 @@ fn build_output(
 ) -> Result<(Stream, StreamInfo)> {
     let (sc, fmt, buf) = pick_config(dev, false, cfg)?;
     let (rate, ch) = (sc.sample_rate.0, sc.channels);
-    let proc = OutputProcessor {
-        ring,
-        rs: Resampler::new(),
-        ch: ch as usize,
-        out_rate: rate as f64,
-        primed: false,
-        adj: 0.0,
-        fill_avg: TARGET_FILL as f64,
-        is_monitor,
-        shared: shared.clone(),
-        mmcss: false,
-    };
+    let proc = OutputProcessor::new(ring, ch as usize, rate, is_monitor, shared.clone());
     let es = shared.clone();
     let err = move |e: cpal::StreamError| {
         es.set_fault(format!(
@@ -790,18 +797,9 @@ pub fn pump_offline(input: &[f32], in_rate: u32, out_rate: u32, params: &ChainPa
     let main = Arc::new(Ring::new(RING_CAP));
     let mon = Arc::new(Ring::new(RING_CAP));
     let mut inp = InputProcessor::new(in_rate, 1, main.clone(), mon, shared.clone());
-    let mut out = OutputProcessor {
-        ring: main,
-        rs: Resampler::new(),
-        ch: 1,
-        out_rate: out_rate as f64,
-        primed: false,
-        adj: 0.0,
-        fill_avg: TARGET_FILL as f64,
-        is_monitor: false,
-        shared,
-        mmcss: true,
-    };
+    let mut out = OutputProcessor::new(main, 1, out_rate, false, shared);
+    // Offline: no real-time thread to register with MMCSS.
+    out.mmcss = true;
     inp.mmcss = true;
     let chunk_in = (in_rate as usize / 100).max(1);
     let mut result = Vec::with_capacity(input.len() * out_rate as usize / in_rate as usize + 1024);
