@@ -9,7 +9,7 @@
 //!
 //! The UI talks to it through a command channel and reads a shared `DevState` snapshot.
 
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -361,7 +361,12 @@ impl Worker {
     fn handle(&mut self, c: Cmd) {
         unsafe {
             match c {
-                Cmd::Refresh => self.refresh_at = Some(Instant::now() + Duration::from_millis(250)), // debounce bursts
+                Cmd::Refresh => {
+                    // Debounce bursts, but never postpone a refresh that is already due
+                    // sooner (a continuous stream of notifications would starve it).
+                    let due = Instant::now() + Duration::from_millis(250);
+                    self.refresh_at = Some(self.refresh_at.map_or(due, |t| t.min(due)));
+                }
                 Cmd::Select(id) => {
                     self.want_id = Some(id);
                     self.refresh_at = Some(Instant::now());
@@ -444,11 +449,22 @@ fn run(rx: Receiver<Cmd>, tx: Sender<Cmd>, state: Arc<Mutex<DevState>>, wake: Wa
     match Worker::new(tx, state.clone(), wake) {
         Ok(mut w) => {
             let mut last_slow = Instant::now();
-            loop {
+            'run: loop {
+                // Take everything that is queued, not one command per pass: a selection
+                // (or any command) triggers at most one re-enumeration per pass, so a
+                // burst of commands cannot build a backlog that Shutdown would wait
+                // behind (exiting the app used to hang for minutes after a burst).
                 match rx.recv_timeout(Duration::from_millis(40)) {
                     Ok(Cmd::Shutdown) | Err(RecvTimeoutError::Disconnected) => break,
                     Ok(c) => w.handle(c),
                     Err(RecvTimeoutError::Timeout) => {}
+                }
+                loop {
+                    match rx.try_recv() {
+                        Ok(Cmd::Shutdown) | Err(TryRecvError::Disconnected) => break 'run,
+                        Ok(c) => w.handle(c),
+                        Err(TryRecvError::Empty) => break,
+                    }
                 }
                 if w.refresh_at.is_some_and(|t| Instant::now() >= t) {
                     w.refresh_at = None;
