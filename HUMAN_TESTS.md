@@ -65,6 +65,18 @@ Things that need ears, hands or other apps. Everything measurable was automated 
     and meters stay crisp and the layout does not clip at 1000 px wide.
 24. **Meter styles.** Bar, Segments, Needle; check readability at a glance while speaking at normal level.
 
+## Silent-mic follow-ups (added with FIX_REPORT.md)
+26. **Touch mute is invisible to Windows.** Tap the AT2020USB-X mute pad while running
+    `target\release\mic-probe.exe` (or watch the app's input meter). Expected: LED changes, the probe
+    reports "DIGITAL SILENCE" while Windows still shows the mic unmuted at 100 %; tap again and the
+    signal returns. This confirms the root cause in FIX_REPORT.md.
+27. **Exclusive mode next to Voicemeeter.** With Voicemeeter running, turn on exclusive mode in the Audio
+    tab. Expected: the note names `voicemeeter_x64.exe`; Voicemeeter's mic strip goes silent; turning
+    exclusive mode off and using Voicemeeter's *Restart Audio Engine* brings it back.
+28. **Crash recovery.** Start `at2020-control.exe --selftest --quick` and end it in Task Manager while the mic
+    volume is below 100 % (first ~2 s). Expected: the mic stays changed until you start the app again, which
+    restores it (the log says "restored ... left changed by an interrupted run").
+
 ## Long run
 25. **Overnight.** Leave the app running overnight with a call or music through it. Expected: 0 xruns, memory
     flat (the automated 60-minute soak measured about 20 MiB working set with no growth).

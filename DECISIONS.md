@@ -66,3 +66,49 @@ Session constraints: no shell on the Windows PC; cloud container is Linux; stati
     a throw-away constant changes the hash) and re-ran. The final release binary used for the final self-test is the
     one built from the commit shown in `SELFTEST_REPORT.md`. The `dist` artifacts are built from the same source but
     contain the embedded icon, so they are not byte-identical to the tested exe.
+
+## Session 3: the silent microphone, crash safety, multi-core testing
+
+Details and evidence: `FIX_REPORT.md`.
+
+43. **Backups before any change.** `backup\MMDevices-Audio.reg` and `backup\CapabilityAccessManager-HKCU.reg`
+    (git-ignored: machine-specific, 8 MB). The System Restore point could not be created: Windows allows one per 24 h
+    and one existed from 13:23 that day; changing that frequency means editing a registry key outside the two trees
+    I was allowed to touch, so I did not.
+44. **Device-stack resets skipped.** The mic was already delivering signal before anything was changed (first probe),
+    so restarting audiosrv and disabling/enabling the AT2020 had nothing to fix. They would only have invalidated
+    every live stream, including Voicemeeter's, which I showed does not recover by itself, and the user's Discord.
+45. **Root cause by elimination, with a decisive measurement.** Every write the app makes was replayed on the live
+    mic and none silences it. The exclusive-mode streams of the earlier session, which bypass the audio engine, APOs,
+    endpoint volume/mute and Voice Clarity and use a different format, also read exact zeros, and the same path
+    reads -1.7 dBFS now. So the zeros came from the device. The AT2020USB-X's topology has no mute node, so its touch
+    mute is invisible to Windows; no PnP, power or USB event happened all day.
+46. **Self-test exclusive section skips instead of pre-empting** other apps (WARN naming them); `--allow-preempt`
+    overrides. Alternative (run and restart the victims) rejected: there is no general way to restart another app's
+    stream; for Voicemeeter it needed its own API.
+47. **Restore journal, not a registry/settings snapshot.** Only the endpoint values the app changes are journaled
+    (volume, channel levels, mute, enhancement flag) plus the default devices for reporting; the app never changes
+    defaults and there is no public API to set them.
+48. **`panic = "unwind"` in release.** A few hundred KB larger, but every Drop guard (exclusive stream, COM scope,
+    event handle, journal) now runs on a panic. Hard kills are covered by the journal.
+49. **cpal callbacks wrapped in `GuardedCallback`**: a panic in the chain is contained, reported once (engine restart)
+    and the stream outputs the format's silence until then.
+50. **loom via target-only rustflags.** `--target x86_64-pc-windows-msvc --config target.<triple>.rustflags=['--cfg','loom']`
+    keeps build scripts out of the loom build, because Smart App Control blocks freshly compiled build-script binaries
+    on this PC. loom's model checks ring and meter; the shared parameter hand-off uses the `triple_buffer` crate (not
+    ours) and is covered by a std stress test instead.
+51. **Real-time stress harness (`device::rtsim`)** drives the engine's real input/output processors from two
+    wall-clock-paced threads on one core, with a busy-loop thread pinned to every other core of the affinity mask,
+    a skewed render clock (drift controller) and a parameter-changing thread. Real-device tests and this harness are
+    `#[serial(system)]` (serial_test); pure tests stay parallel.
+52. **DevCtl drains its command queue each pass.** Found by the hot-swap stress test: one command per pass plus a full
+    re-enumeration per selection made shutdown wait behind a backlog of minutes.
+53. **Drift controller measures a phase-independent fill** (found by the matrix on one core). It adds the capture
+    device's output since its last push (elapsed time from a QueryPerformanceCounter read) to the ring fill, and
+    raises the target by one capture period so the raw cushion is unchanged. That costs up to one capture period
+    (10 ms) of extra latency. Alternative considered: a much slower controller; rejected because a static phase
+    flip still needs the ring to move by a whole frame, i.e. a long pitch excursion. The clock read in the
+    callbacks is user-mode and non-blocking; it is the second documented exception to "no system calls" (after
+    the MMCSS registration).
+54. **Priming drops the excess, never-played samples** (up to one frame) so playback starts at the controller's
+    equilibrium, instead of a ~5 s pitch excursion at every engine start or after an underrun.

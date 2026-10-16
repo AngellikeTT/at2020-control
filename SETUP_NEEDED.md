@@ -21,11 +21,14 @@ Everything needed to build is installed. Nothing further is **required**.
    (debug) and arbitrary new build scripts here, either disable Smart App Control in
    *Windows Security -> App & browser control -> Smart App Control*, or sign the binaries with a
    certificate Windows trusts.
-2. **The microphone has been delivering digital silence since about 14:35** (both the raw
-   WASAPI capture and Windows' own peak meter read exact zeros; endpoint mute is *off* and
-   volume is 100 %). The AT2020USB-X has a touch-sensitive mute: check its LED / tap it, and check
-   *Windows Settings -> Privacy -> Microphone*. The automated tests that need real mic content
-   (RNNoise reduction on live noise) ran earlier in the day when the mic was live
-   (raw -52.3 dBFS, 13.7 dB suppression); later runs only prove the plumbing.
+2. **The microphone works again** (since ~20:20 on 2026-10-15). From ~14:30 to ~20:20 it
+   delivered exact digital silence; `FIX_REPORT.md` shows that the zeros came from the device
+   itself, most likely its touch mute, which Windows cannot see. If it happens again while
+   Windows shows the mic unmuted at 100 %, check the mute LED / tap the pad, then run
+   `target\release\mic-probe.exe` (prints "DIGITAL SILENCE" in that case). The self-test now
+   fails on digital silence instead of passing.
 3. You have Voicemeeter installed next to VB-CABLE. The app now prefers `CABLE Input` when
    choosing an output; Voicemeeter's devices are still listed and flagged as virtual.
+   Voicemeeter captures the AT2020 continuously, so keep the app's **exclusive mode off** while
+   it runs. Exclusive mode cuts Voicemeeter's mic stream, and Voicemeeter stays silent until
+   you use its *Restart Audio Engine* menu item. The app warns about this, and the self-test skips that part.

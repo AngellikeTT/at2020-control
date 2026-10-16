@@ -28,8 +28,12 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # Release: the real-time stress tests measure the engine, not debug-build overhead.
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --release --workspace
+
+      - name: Loom (lock-free ring and meters)
+        run: cargo test --release -p core-dsp --lib --target x86_64-pc-windows-msvc --config "target.x86_64-pc-windows-msvc.rustflags=['--cfg','loom']" -- loom
 
       - name: Build release
         run: cargo build --release --workspace

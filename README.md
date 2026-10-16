@@ -50,14 +50,19 @@ The audio callbacks never allocate, lock, log or make system calls. Parameters a
 through a lock-free triple buffer and every parameter change is smoothed (gains ramp per
 sample, filter coefficients and thresholds glide over ~20 ms, stage switches are folded
 into neutral values), so moving a slider or toggling a stage does not click. The only
-system call on a callback thread is a single MMCSS registration on its first invocation.
+system call on a callback thread is a single MMCSS registration on its first invocation;
+the callbacks also read the high-resolution clock (`QueryPerformanceCounter`, user mode,
+non-blocking). The drift controller uses it to estimate the queue level independently of
+whether the capture or the render callback ran last. A panic in a callback is contained
+and reported, and the engine restarts.
 
 ## Command line
 
 ```text
 at2020-control.exe --process in.wav out.wav [--preset <name|file.toml>] [--bits 16|24|32]
 at2020-control.exe --list-presets
-at2020-control.exe --selftest [--quick] [--out report.md]    (hidden; see below)
+at2020-control.exe --selftest [--quick] [--out report.md] [--allow-preempt] [--live-noise-only]
+                                                              (hidden; see below)
 at2020-control.exe --minimized                                (start hidden in the tray)
 ```
 
@@ -98,13 +103,31 @@ bg = "#101014"
 
 ## Self-test
 
-`--selftest` writes `SELFTEST_REPORT.md` and restores every setting it touches (mic volume
-and mute are restored by a guard; default devices and the enhancement flag are only read
-and compared before/after). It covers device discovery and capabilities, the volume/mute
+`--selftest` writes `SELFTEST_REPORT.md` and restores every setting it touches. Before it
+changes anything, the mic's state (volume, channel levels, mute, enhancement flag, plus
+the default devices for reference) is written to
+`%APPDATA%\AT2020 Control Panel\restore-journal.json`. The state is restored and verified at
+the end, on a panic, or, if the process is killed, by the next launch of the app in any
+mode. It covers device discovery and capabilities, the volume/mute
 round trip, DSP stages, the engine pipeline at several sample-rate pairs, a 30 s live
-capture with RNNoise, VB-CABLE loopback (latency, flat response with DSP bypassed, THD+N,
+capture with RNNoise, a live noise-suppression measurement on real room noise,
+VB-CABLE loopback (latency, flat response with DSP bypassed, THD+N,
 each stage through the real device path), exclusive mode, a 60-minute soak (xruns, ring
 fill, CPU, memory) and the hot-plug handler paths. `--quick` shortens the long parts.
+
+A microphone that delivers exact digital silence fails the run, with a hint about the
+hardware mute. The AT2020USB-X's touch mute is invisible to Windows; its endpoint has no mute
+control. The exclusive-mode section is skipped with a warning when another app is streaming on the mic or the cable,
+because exclusive mode would silently cut that app off (Voicemeeter does not recover by
+itself); `--allow-preempt` runs it anyway. `--live-noise-only` runs just the
+noise-suppression measurement (`LIVE_NOISE_REPORT.md`).
+
+### Diagnostics
+
+`mic-probe.exe` (built with the workspace, `crates/probe`) is a standalone WASAPI shared-mode probe:
+endpoints and default roles, volume/mute/channel levels, the hardware topology (mute,
+volume, AGC nodes), who has the device open, and 5 s of capture statistics (peak, RMS,
+exact zeros, `AUDCLNT_BUFFERFLAGS_SILENT`). Exit code 0 = signal, 1 = digital silence.
 
 ## Building
 
@@ -117,7 +140,17 @@ cargo test --release --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all
 powershell -ExecutionPolicy Bypass -File scripts\package.ps1   # dist\: exe, zip, installer
+powershell -ExecutionPolicy Bypass -File scripts\test-matrix.ps1   # threads x affinity x runs
+# loom model checking of the lock-free ring and meters:
+cargo test --release -p core-dsp --lib --target x86_64-pc-windows-msvc `
+  --config "target.x86_64-pc-windows-msvc.rustflags=['--cfg','loom']" -- loom
 ```
+
+Tests that touch real audio devices or system state, or saturate the CPU, run one at a time
+(`#[serial(system)]`); everything else runs in parallel. They skip themselves when the hardware they need is absent.
+The real-time stress tests run the engine's real processing on one core while every other
+core is saturated, with a skewed device clock and parameters changing. They require 0 xruns, no glitch and
+a locked pitch.
 
 Crates:
 

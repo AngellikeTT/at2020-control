@@ -1,5 +1,22 @@
 # SUMMARY
 
+> **Session 3 (2026-10-15 evening): the silent microphone, crash safety, multi-core testing.**
+> Read `FIX_REPORT.md` first. In short: the mic works. The silence came from the device
+> itself (most likely its touch mute, invisible to Windows), not from the app. The app had
+> eight real bugs around it, all fixed with tests:
+> - the self-test passed on a dead mic;
+> - its exclusive phase cut Voicemeeter off;
+> - the restore was not crash-safe;
+> - streams were not panic-safe;
+> - a ring length wrapped;
+> - a meter was pinned by -0.0;
+> - device control hung on exit after a command burst;
+> - the drift controller bent the pitch whenever the callbacks swapped order.
+>
+> Test matrix (4 thread counts × 5 affinity masks incl. E-cores-only × 5 runs): 100/100 PASS; loom 3/3.
+>
+> Item 2 of "Things I skipped" below (the silent mic) is superseded by FIX_REPORT.md.
+
 State at the end of the session. Details of every choice are in `DECISIONS.md`; things that need
 a human are in `HUMAN_TESTS.md`; machine-level notes are in `SETUP_NEEDED.md`.
 

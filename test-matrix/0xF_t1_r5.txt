@@ -1,0 +1,116 @@
+    Finished `release` profile [optimized] target(s) in 0.19s
+     Running unittests src\main.rs (target\release\deps\at2020_control-8f5667f50866f8e7.exe)
+
+running 14 tests
+test selftest::tests::digital_silence_fails_the_mic_check ... ok
+test selftest::tests::exclusive_check_fails_on_silence ... ok
+test selftest::tests::exclusive_section_runs_when_alone_or_allowed ... ok
+test selftest::tests::exclusive_section_skips_when_it_would_preempt_another_app ... ok
+test selftest::tests::noise_suppression_measurement_is_calibrated ... ok
+test selftest::tests::room_noise_passes_the_mic_check ... ok
+test settings::tests::partial_toml_falls_back_to_defaults ... ok
+test settings::tests::preset_toml_round_trip_is_lossless ... ok
+test settings::tests::resolve_builtin_aliases ... ok
+test theme::tests::every_builtin_round_trips_through_toml ... ok
+test theme::tests::hex_colours_parse_and_format ... ok
+test theme::tests::partial_theme_file_uses_defaults ... ok
+test theme::tests::text_is_readable_on_every_background ... ok
+test theme::tests::there_are_nine_unique_builtins ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running unittests src\lib.rs (target\release\deps\core_dsp-153558b3c0cb40cd.exe)
+
+running 40 tests
+test dsp::tests::bypass_is_transparent_except_gain ... ok
+test dsp::tests::comp_curve_is_continuous_across_knee ... ok
+test dsp::tests::compressor_matches_static_curve ... ok
+test dsp::tests::deesser_cuts_sibilance_band_and_leaves_the_rest ... ok
+test dsp::tests::deesser_is_transparent_below_threshold ... ok
+test dsp::tests::effective_params_neutralise_disabled_stages ... ok
+test dsp::tests::eq_gain_sweep_is_click_free ... ok
+test dsp::tests::full_chain_is_finite_and_bounded ... ok
+test dsp::tests::gate_closes_on_quiet_and_opens_on_loud ... ok
+test dsp::tests::gate_holds_then_releases ... ok
+test dsp::tests::highpass_is_3db_down_at_cutoff ... ok
+test dsp::tests::limiter_never_exceeds_ceiling ... ok
+test dsp::tests::measured_response_matches_formula ... ok
+test dsp::tests::mute_silences_output ... ok
+test dsp::tests::output_gain_change_is_click_free ... ok
+test dsp::tests::peaking_filter_hits_requested_gain ... ok
+test dsp::tests::shelves_reach_their_gain ... ok
+test dsp::tests::toggling_stages_mid_stream_does_not_click ... ok
+test dsp::tests::vad_gate_follows_probability_with_hold ... ok
+test level::tests::a_single_lsb_is_not_silence_but_is_very_low ... ok
+test level::tests::empty_is_not_signal ... ok
+test level::tests::exact_zeros_are_digital_silence ... ok
+test level::tests::non_finite_samples_count_as_signal ... ok
+test level::tests::peak_meter_zero_is_not_signal ... ok
+test level::tests::room_noise_is_present ... ok
+test offline::tests::output_is_time_aligned_with_input ... ok
+test offline::tests::output_matches_input_length_and_level ... ok
+test offline::tests::wav_round_trip_24_bit ... ok
+test offline::tests::works_at_other_sample_rates ... ok
+test resample::tests::identity_ratio_is_pure_delay ... ok
+test resample::tests::pull_mode_stops_when_full ... ok
+test resample::tests::upsample_44k1_to_48k_keeps_pitch_and_level ... ok
+test ring::tests::len_seen_by_an_observer_is_bounded ... ok
+test ring::tests::push_is_bounded ... ok
+test ring::tests::threads ... ok
+test ring::tests::wraps_and_preserves_order ... ok
+test spectrum::tests::sine_peak_lands_in_the_right_bin_at_the_right_level ... ok
+test sync::tests::concurrent_peaks_are_never_lost ... ok
+test sync::tests::negative_and_non_finite_values_are_ignored ... ok
+test sync::tests::negative_zero_does_not_hide_later_peaks ... ok
+
+test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running unittests src\lib.rs (target\release\deps\device-5a18881333a4622f.exe)
+
+running 25 tests
+test guard::tests::a_normal_stop_reports_nothing ... ok
+test guard::tests::a_panicking_callback_is_contained_and_silenced ... ok
+test guard::tests::a_panicking_capture_callback_is_contained ... ok
+test guard::tests::a_panicking_stream_body_is_stopped_and_reported ... ok
+test guard::tests::an_erroring_stream_is_stopped_and_reported ... ok
+test guard::tests::on_drop_runs_while_unwinding ... ok
+test guard::tests::unsigned_output_is_silenced_at_mid_scale ... ok
+test restore::tests::a_failed_restore_keeps_the_journal_for_later ... ok
+test restore::tests::a_killed_run_is_restored_on_the_next_launch ... ok
+test restore::tests::a_panicking_run_restores_on_unwind ... ok
+test restore::tests::begin_recovers_a_stale_journal_before_snapshotting ... ok
+test restore::tests::changed_default_devices_are_reported ... ok
+test restore::tests::journal_is_on_disk_before_the_first_change ... ok
+test sessions::tests::nothing_to_preempt_when_alone ... ok
+test sessions::tests::only_other_running_streams_are_preempted ... ok
+test stress_tests::devctl_survives_concurrent_hot_swap_commands ... ok
+test stress_tests::exclusive_stream_is_released_on_drop_and_on_panic ... ok
+test stress_tests::faults_are_delivered_under_contention ... ok
+test stress_tests::journal_restores_the_real_default_microphone ... ok
+test stress_tests::params_survive_concurrent_writers_and_hot_swaps ... ok
+test stress_tests::rt_drift_controller_ignores_callback_order ... ok
+test stress_tests::rt_no_xruns_or_glitches_with_cpu_saturated ... ok
+test stress_tests::rt_resampling_path_under_load_with_slow_clock ... ok
+test wasapi_excl::tests::integer_conversions_round_trip ... ok
+test wasapi_excl::tests::wave_format_fields_are_consistent ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.51s
+
+     Running unittests src\main.rs (target\release\deps\mic_probe-2fbfc4b8ed4674ec.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests core_dsp
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests device
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
